@@ -110,42 +110,39 @@ void Proxy::EsperarConexiones() {
 							DEBUG_MSG(strMessage);
 
 							//Si conecta se responde con la misma secuencia de bytes modificando el resultado de la conexion
-						/*
-						* https://datatracker.ietf.org/doc/html/rfc1928
-							+----+-----+-------+------+----------+----------+
-							|VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
-							+----+-----+-------+------+----------+----------+
-							| 1  |  1  | X'00' |  1   | Variable |    2     |
-							+----+-----+-------+------+----------+----------+
+							/*
+							* https://datatracker.ietf.org/doc/html/rfc1928
+								+----+-----+-------+------+----------+----------+
+								|VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
+								+----+-----+-------+------+----------+----------+
+								| 1  |  1  | X'00' |  1   | Variable |    2     |
+								+----+-----+-------+------+----------+----------+
 
-						 Where:
+							 Where:
 
-							  o  VER    protocol version: X'05'
-							  o  REP    Reply field:
-								 o  X'00' succeeded
-								 o  X'01' general SOCKS server failure
-								 o  X'02' connection not allowed by ruleset
-								 o  X'03' Network unreachable
-								 o  X'04' Host unreachable
-								 o  X'05' Connection refused
-								 o  X'06' TTL expired
-								 o  X'07' Command not supported
-								 o  X'08' Address type not supported
-								 o  X'09' to X'FF' unassigned
-												*/
+								  o  VER    protocol version: X'05'
+								  o  REP    Reply field:
+									 o  X'00' succeeded
+									 o  X'01' general SOCKS server failure
+									 o  X'02' connection not allowed by ruleset
+									 o  X'03' Network unreachable
+									 o  X'04' Host unreachable
+									 o  X'05' Connection refused
+									 o  X'06' TTL expired
+									 o  X'07' Command not supported
+									 o  X'08' Address type not supported
+									 o  X'09' to X'FF' unassigned
+													*/
 							vcData[1] = 0x00;
 							this->sendAll(temp_socket, vcData.data(), iRecibido);
 							
 							delete[] cHost;
 							cHost = nullptr;
 						}else {
-							//DEBUG_MSG("INIT_DATA:");
-							//DEBUG_MSG(vcData.data());
-							//DEBUG_MSG("END_DATA:");
 							DEBUG_MSG("SENDING DEFAULT BANNER");
-							std::string strHTML = "<center><h1>PWNED!</h1></center>";
+							std::string strHTML = "<center><h1>Fununsia :v</h1></center>";
 							std::string strBanner = "HTTP/1.1 200 OK\r\n"\
-								"Date: Sat, 09 Dec 2025 03:10:00 GMT\r\n"\
+								"Date: Sat, 10 Jan 2011 03:10:00 GMT\r\n"\
 								"Server: Apache/2.4.29 (Ubuntu)\r\n"\
 								"Content-Length:"; 
 							strBanner += std::to_string(strHTML.size());
