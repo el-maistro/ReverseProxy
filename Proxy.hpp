@@ -14,8 +14,12 @@ class Proxy{
 		SOCKET sckListenSocket = INVALID_SOCKET;
 		struct sockaddr_in structServer;
 
+		SOCKET m_Conectar(const char*& _host, const char*& _puerto);
 		std::vector<char> readAll(SOCKET& _socket, int& _out_recibido);
-
 		int sendAll(SOCKET& _socket, const char* _cbuffer, size_t _buff_size);
+
+		void th_Handle_Session(SOCKET _socket);
+
+		std::string strTestBanner();
 };
 

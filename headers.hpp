@@ -1,12 +1,14 @@
 #include<ws2tcpip.h>
 #include<windows.h>
 #include<iostream>
+#include<thread>
 #include<iomanip>
 #include<memory>
 #include<string>
 #include<vector>
 #include<ctime>
 #include<fcntl.h>
+#include<stdlib.h>
 
 #pragma comment(lib, "ws2_32.lib")
 
