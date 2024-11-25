@@ -54,6 +54,20 @@ bool Proxy::m_InitSocket(SOCKET& _socket, int _puerto) {
 	return true;
 }
 
+SOCKET Proxy::m_Aceptar(SOCKET& _socket) {
+	struct sockaddr_in structCliente;
+	int struct_size = sizeof(struct sockaddr_in);
+	SOCKET nSocket = accept(_socket, (struct sockaddr*)&structCliente, &struct_size);
+	if (nSocket != INVALID_SOCKET) {
+		unsigned long int iBlock = 1;
+		if (ioctlsocket(nSocket, FIONBIO, &iBlock) != 0) {
+			DEBUG_MSG("Error configurando el socket NON_BLOCK");
+		}
+	}
+
+	return nSocket;
+}
+
 void Proxy::EsperarConexiones() {
 
 	struct timeval timeout;
@@ -70,7 +84,7 @@ void Proxy::EsperarConexiones() {
 	FD_SET(this->sckLocalSocket, &fdMaster);
 	FD_SET(this->sckRemoteSocket, &fdMaster);
 	
-	SOCKET sckTemp_Remoto = INVALID_SOCKET;
+	SOCKET sckTemp_Proxy_Remota = INVALID_SOCKET;
 
 	bool isRunning = true;
 
@@ -84,49 +98,43 @@ void Proxy::EsperarConexiones() {
 			
 			//Conexion local entrante (browser, etc)
 			if (temp_socket == this->sckLocalSocket) {
-				struct sockaddr_in structCliente;
-				int struct_size = sizeof(struct sockaddr_in);
-				SOCKET nSocket = accept(this->sckLocalSocket, (struct sockaddr*)&structCliente, &struct_size);
-				if (nSocket != INVALID_SOCKET) {
-					if (sckTemp_Remoto == INVALID_SOCKET) {
-						DEBUG_MSG("[!] El cliente/proxy-remota no se ha conectado. Rechazando conexion");
-						closesocket(nSocket);
-						nSocket = INVALID_SOCKET;
+
+				SOCKET nSocketLocal = this->m_Aceptar(this->sckLocalSocket);
+
+				if (nSocketLocal != INVALID_SOCKET) {
+					if (sckTemp_Proxy_Remota == INVALID_SOCKET) {
+						//DEBUG_MSG("[!] El cliente/proxy-remota no se ha conectado. Rechazando conexion");
+						closesocket(nSocketLocal);
 						continue;
 					}
-					unsigned long int iBlock = 1;
-					if (ioctlsocket(nSocket, FIONBIO, &iBlock) != 0) {
-						DEBUG_MSG("Error configurando el socket NON_BLOCK");
-					}
+					
 					DEBUG_MSG("Conexion local aceptada");
 					
-					FD_SET(nSocket, &fdMaster);
+					FD_SET(nSocketLocal, &fdMaster);
 				}
 			}else if (temp_socket == this->sckRemoteSocket) {
-				//Conexion remota del cliente
-				struct sockaddr_in structCliente;
-				int struct_size = sizeof(struct sockaddr_in);
-				SOCKET nSocket = accept(this->sckRemoteSocket, (struct sockaddr*)&structCliente, &struct_size);
-				if (nSocket != INVALID_SOCKET) {
-					unsigned long int iBlock = 1;
-					if (ioctlsocket(nSocket, FIONBIO, &iBlock) != 0) {
-						DEBUG_MSG("Error configurando el socket NON_BLOCK");
-					}
+				//Conexion remota del proxy
+				
+				SOCKET nSocketProxyRemota = this->m_Aceptar(this->sckRemoteSocket);
+				if (nSocketProxyRemota != INVALID_SOCKET) {
+					
 					DEBUG_MSG("Conexion de proxy remota aceptada");
 
-					sckTemp_Remoto = nSocket;
+					sckTemp_Proxy_Remota = nSocketProxyRemota;
 
-					FD_SET(nSocket, &fdMaster);
+					FD_SET(nSocketProxyRemota, &fdMaster);
 
 					//Eliminar socket del FD ya que solo se necesita una conexion remota con el proxy?
 					FD_CLR(this->sckRemoteSocket, &fdMaster);
 					closesocket(this->sckRemoteSocket);
+				}else {
+					//DEBUG_ERR("No se pudo aceptar la conexion de la proxy remota");
 				}
-			}else if(temp_socket == sckTemp_Remoto){
+			}else if(temp_socket == sckTemp_Proxy_Remota){
 				//Datos del proxy remoto
 				int iRecibido = 0;
 				std::vector<char> vcData = this->m_thS_ReadSocket(temp_socket, iRecibido);
-				if (iRecibido > (sizeof(SOCKET) * 2)) {
+				if (iRecibido > int((sizeof(SOCKET) * 2))) {
 					//Crear thread con puerto local y remoto
 					// remover socket local del FD en este thread
 					SOCKET socket_cliente_local  = INVALID_SOCKET;
@@ -143,7 +151,7 @@ void Proxy::EsperarConexiones() {
 							if (iEnviado == SOCKET_ERROR) {
 								DEBUG_ERR("[X] Error enviado respuesta de proxy remota a cliente local");
 							}else {
-								std::thread th = std::thread(&Proxy::th_Handle_Session, this, socket_cliente_local, sckTemp_Remoto, socket_remoto_punto_final);
+								std::thread th = std::thread(&Proxy::th_Handle_Session, this, socket_cliente_local, sckTemp_Proxy_Remota, socket_remoto_punto_final);
 								th.detach();
 							}
 						}else {
@@ -166,7 +174,7 @@ void Proxy::EsperarConexiones() {
 
 					FD_CLR(temp_socket, &fdMaster);
 					closesocket(temp_socket);
-					sckTemp_Remoto = INVALID_SOCKET;
+					sckTemp_Proxy_Remota = INVALID_SOCKET;
 					
 					//Reiniciar el socket y agregarlo al FD
 					if (this->m_InitSocket(this->sckRemoteSocket, 7777)) {
@@ -192,14 +200,15 @@ void Proxy::EsperarConexiones() {
 				if (iRecibido > 0) {
 					size_t nSize = iRecibido + sizeof(SOCKET);
 					vcData.resize(nSize);
-					memcpy(vcData.data(), &temp_socket, sizeof(SOCKET));
-					int iEnviado = this->m_thS_WriteSocket(sckTemp_Remoto, vcData.data(), nSize);
+					memcpy(vcData.data() + iRecibido, &temp_socket, sizeof(SOCKET));
+					int iEnviado = this->m_thS_WriteSocket(sckTemp_Proxy_Remota, vcData.data(), nSize);
 					if (iEnviado == SOCKET_ERROR) {
 						DEBUG_ERR("[X] Error reenviando el paquete al proxy remoto");
 						FD_CLR(temp_socket, &fdMaster);
 						closesocket(temp_socket);
 					} 
 				}else if (iRecibido == SOCKET_ERROR) {
+					DEBUG_ERR("[X] Error leyendo datos del navegador/cliente local");
 					FD_CLR(temp_socket, &fdMaster);
 					closesocket(temp_socket);
 				}

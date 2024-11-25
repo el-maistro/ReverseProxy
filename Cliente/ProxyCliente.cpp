@@ -9,7 +9,7 @@ ProxyCliente::ProxyCliente() {
 	}
 }
 
-bool ProxyCliente::m_Conectar(const char* _host, const char* _puerto) {
+bool ProxyCliente::m_ConectarServer(const char* _host, const char* _puerto) {
 	struct addrinfo sAddress, * sP, * sServer;
 	memset(&sAddress, 0, sizeof(sAddress));
 
@@ -52,6 +52,7 @@ bool ProxyCliente::m_Conectar(const char* _host, const char* _puerto) {
 }
 
 void ProxyCliente::m_LoopSession() {
+	size_t iTam = sizeof(SOCKET);
 	DEBUG_MSG("[!] Esperando por peticion...");
 	
 	struct timeval timeout;
@@ -65,7 +66,6 @@ void ProxyCliente::m_LoopSession() {
 	bool isConnected = true;
 
 	while (isConnected) {
-		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		fd_set fdMaster_Copy = fdMaster;
 		
 		int iNumeroSockets = select(this->sckMainSocket + 1, &fdMaster_Copy, nullptr, nullptr, &timeout);
@@ -73,38 +73,27 @@ void ProxyCliente::m_LoopSession() {
 		for (int index = 0; index < iNumeroSockets; index++) {
 			SOCKET temp_socket = fdMaster_Copy.fd_array[index];
 
-			//Datos para leer
+			//Datos para leer del servidor
 			if (temp_socket == this->sckMainSocket) {
 				int iRecibido = 0;
 				std::vector<char> vcData = this->readAll(temp_socket, iRecibido);
 				
 				if (iRecibido > 0) {
-					if (iRecibido == 3 &&
-						((vcData[0] == 0x05 || vcData[0] == 0x04) && //SOCKS4 o SOCKS5
-						vcData[1] == 0x01 && vcData[2] == 0x00)){     //SIN AUTENTICACION
-						//Paquete inicial
-
-						char cRespuesta[2];
+					if (this->isPrimerPaso(vcData, iRecibido)){ 
+						std::vector<char> cRespuesta((sizeof(SOCKET)*2) + 2);
 						cRespuesta[0] = vcData[0];
 						cRespuesta[1] = 0x00;
+						SOCKET dummy_socket = INVALID_SOCKET;
+						memcpy(cRespuesta.data() + 2, vcData.data() + 3, sizeof(SOCKET));
+						memcpy(cRespuesta.data() + 2 + sizeof(SOCKET), &dummy_socket, sizeof(SOCKET));
 
-						int iEnviado = this->sendAll(temp_socket, cRespuesta, 2);
+						int iEnviado = this->sendAll(temp_socket, cRespuesta.data(), cRespuesta.size());
 
-						if (iEnviado != 2) {
+						if (iEnviado == SOCKET_ERROR) {
 							DEBUG_ERR("[X] No se pudo responder al primer paso");
 						}
-					}else if (iRecibido > 4 &&
-							  (vcData[0] == 0x05 || vcData[0] == 0x04) &&						//SOCKS4 o SOCKS5
-						       vcData[1] == 0x01 && vcData[2] == 0x00  &&						//CMD   | RESERVADO
-						      (vcData[3] == 0x01 || vcData[3] == 0x03 || vcData[3] == 0x04)) {  // IPV4 IPV6 Domain Name
+					}else if (this->isSegundoPaso(vcData, iRecibido)){
 						//Segundo paquete, informacion de conexion 
-						//  https://datatracker.ietf.org/doc/html/rfc1928
-						/*  +----+-----+-------+------+----------+----------+
-							|VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
-							+----+-----+-------+------+----------+----------+
-							| 1  |  1  | X'00' |  1   | Variable |    2     |
-							+----+-----+-------+------+----------+----------+*/
-					
 						char cHostType = vcData[3];
 						std::vector<char> cHost;
 
@@ -138,12 +127,13 @@ void ProxyCliente::m_LoopSession() {
 
 						const char* cPort      = strPort.c_str();
 						const char* cFinalHost =    cHost.data();
-
-						SOCKET sckPuntoFinal = this->m_Conectar(cFinalHost, cPort);
+					
+						SOCKET sckPuntoFinal = this->m_sckConectar(cFinalHost, cPort);
 						if (sckPuntoFinal != INVALID_SOCKET) {
-							//Crear thread que leera del punto final
+							//Crear thread que leer del punto final
 							vcData[1] = 0x00;
 
+							//Alojar espacio para agregar el socket del punto final
 							size_t nSize = iRecibido + sizeof(SOCKET);
 							vcData.resize(nSize);
 							memcpy(vcData.data() + iRecibido, &sckPuntoFinal, sizeof(SOCKET));
@@ -152,23 +142,81 @@ void ProxyCliente::m_LoopSession() {
 
 							std::thread th(&ProxyCliente::th_Handle_Session, this, sckPuntoFinal, socket_remoto);
 							th.detach();
+							DEBUG_MSG("[!] Conexion con punto final completa!");
 						}else {
-							vcData[1] = 0x00;
+							vcData[1] = 0x04;
 							DEBUG_ERR("[X] No se pudo conectar al punto final");
 							this->sendAll(temp_socket, vcData.data(), iRecibido);
 						}
 					}else {
 						//Datos para enviar al punto final
+						SOCKET socket_punto_final = INVALID_SOCKET;
+
+						memcpy(&socket_punto_final, vcData.data() + (iRecibido - sizeof(SOCKET)), sizeof(SOCKET));
+							
+						if (socket_punto_final != INVALID_SOCKET) {
+							int iEnviado = this->sendAll(socket_punto_final, vcData.data(), iRecibido - sizeof(SOCKET));
+							if (iEnviado == SOCKET_ERROR) {
+								DEBUG_ERR("[X] Error enviando datos al punto final");
+							}
+						}else {
+							DEBUG_ERR("[X] No se pudo parsear el SOCKET");
+						}
 					}
 				}else if (iRecibido == SOCKET_ERROR) {
-					DEBUG_ERR("[X] Error leyendo datos del socket");
+					DEBUG_ERR("[X] Error leyendo datos del socket del servidor");
 					FD_CLR(temp_socket, &fdMaster_Copy);
+					closesocket(temp_socket);
 					isConnected = false;
 					break;
 				}
 			}
 		}
 	}
+}
+
+SOCKET ProxyCliente::m_sckConectar(const char* _host, const char* _puerto) {
+	struct addrinfo sAddress, * sP, * sServer;
+	memset(&sAddress, 0, sizeof(sAddress));
+
+	SOCKET temp_socket = INVALID_SOCKET;
+
+	sAddress.ai_family = AF_UNSPEC;
+	sAddress.ai_socktype = SOCK_STREAM;
+
+	int iRes = getaddrinfo(_host, _puerto, &sAddress, &sServer);
+	if (iRes != 0) {
+		DEBUG_ERR("[X] getaddrinfo error");
+		return temp_socket;
+	}
+
+	for (sP = sServer; sP != nullptr; sP = sP->ai_next) {
+		if ((temp_socket = socket(sP->ai_family, sP->ai_socktype, sP->ai_protocol)) == INVALID_SOCKET) {
+			//socket error
+			continue;
+		}
+
+		if (connect(temp_socket, sP->ai_addr, sP->ai_addrlen) == -1) {
+			//No se pudo conectar
+			DEBUG_ERR("[X] No se pudo conectar");
+			continue;
+		}
+		break;
+	}
+
+	if (sP == nullptr || temp_socket == INVALID_SOCKET) {
+		freeaddrinfo(sServer);
+		return temp_socket;
+	}
+
+	unsigned long int iBlock = 1;
+	if (ioctlsocket(temp_socket, FIONBIO, &iBlock) != 0) {
+		DEBUG_ERR("[X] No se pudo hacer non_block");
+	}
+
+	freeaddrinfo(sServer);
+
+	return temp_socket;
 }
 
 std::vector<char> ProxyCliente::readAll(SOCKET& _socket, int& _out_recibido) {
@@ -182,8 +230,7 @@ std::vector<char> ProxyCliente::readAll(SOCKET& _socket, int& _out_recibido) {
 		int iRecibido = recv(_socket, cTempBuffer, iChunk, 0);
 		if (iRecibido == 0) {
 			break;
-		}
-		else if (iRecibido == SOCKET_ERROR) {
+		}else if (iRecibido == SOCKET_ERROR) {
 			int error_wsa = WSAGetLastError();
 			if (error_wsa == WSAEWOULDBLOCK) {
 				if (iRetrys-- > 5) {
@@ -249,5 +296,87 @@ std::vector<char> ProxyCliente::strParseIP(const uint8_t* addr, uint8_t addr_typ
 }
 
 void ProxyCliente::th_Handle_Session(SOCKET _socket_local, SOCKET socket_remoto) {
+	// this->sckMainsocket = SOCKET servidor 
+	// _socket_local       = SOCKET con punto final
+	// socket_remoto       = SOCKET de servidor con cliente/browser
+	struct timeval timeout;
+	timeout.tv_sec = 5;
+	timeout.tv_usec = 0;
+
+	fd_set fdMaster;
+	FD_ZERO(&fdMaster);
+	FD_SET(_socket_local, &fdMaster);
+
+	while (1) {
+		fd_set fdMaster_Copy = fdMaster;
+
+		int iNumeroSockets = select(_socket_local + 1, &fdMaster_Copy, nullptr, nullptr, &timeout);
+		for (int index = 0; index < iNumeroSockets; index++) {
+			SOCKET temp_socket = fdMaster_Copy.fd_array[index];
+
+			if (temp_socket == _socket_local) {
+				//Datos del punto final. Reenviar a servidor junto con informacion de SOCKETS
+				int iRecibido = 0;
+				std::vector<char> vcData = this->readAll(temp_socket, iRecibido);
+				if(iRecibido > 0){
+					size_t oldSize = vcData.size();
+					size_t nSize = oldSize + (sizeof(SOCKET) * 2);
+					vcData.resize(nSize);
+
+					memcpy(vcData.data() + oldSize, &_socket_local, sizeof(SOCKET));
+					memcpy(vcData.data() + oldSize + sizeof(SOCKET), &socket_remoto, sizeof(SOCKET));
+
+					int iEnviado = this->sendAll(this->sckMainSocket, vcData.data(), nSize);
+					if (iEnviado == SOCKET_ERROR) {
+						DEBUG_ERR("[X] Error enviado respuesta del punto final");
+						FD_CLR(temp_socket, &fdMaster);
+						closesocket(temp_socket);
+						break;
+					}
+				}else if (iRecibido == SOCKET_ERROR) {
+					FD_CLR(temp_socket, &fdMaster);
+					closesocket(temp_socket);
+					break;
+				}
+			}
+		}
+	}
+
 	return;
+}
+
+bool ProxyCliente::isPrimerPaso(const std::vector<char>& _vcdata, int _recibido) {
+	if (_recibido != 11) {
+		return false;
+	}
+
+	if (_vcdata[0] == 0x5 || _vcdata[0] == 0x04) {      // SOCKS4 o SOCKS5
+		if (_vcdata[1] == 0x01 && _vcdata[2] == 0x00) { // Sin Autenticacion
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool ProxyCliente::isSegundoPaso(const std::vector<char>& _vcdata, int _recibido) {
+	//  https://datatracker.ietf.org/doc/html/rfc1928
+	/*  +----+-----+-------+------+----------+----------+
+		|VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
+		+----+-----+-------+------+----------+----------+
+		| 1  |  1  | X'00' |  1   | Variable |    2     |
+		+----+-----+-------+------+----------+----------+*/
+	if (_recibido < 4) {
+		return false;
+	}
+
+	if (_vcdata[0] == 0x05 || _vcdata[0] == 0x04) {		                          //SOCKS4 o SOCKS5
+		if (   _vcdata[1] == 0x01                                                 // CMD
+			&& _vcdata[2] == 0x00                                                 // RESERVADO
+			&&(_vcdata[3] == 0x01 || _vcdata[3] == 0x03 || _vcdata[3] == 0x04)    // IPV4 IPV6 Domain Name
+			) {
+			return true;
+		}
+	}
+	return false;
 }

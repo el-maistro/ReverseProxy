@@ -11,7 +11,7 @@ int main(int argc, char**argv){
 
 	ProxyCliente* nProxy = new ProxyCliente();
 
-	if (nProxy->m_Conectar(isDefault ? cDHost : argv[1], isDefault ? cDPort : argv[2])) {
+	if (nProxy->m_ConectarServer(isDefault ? cDHost : argv[1], isDefault ? cDPort : argv[2])) {
 		//Loop para esperar por paquete
 		nProxy->m_LoopSession();
 	}else {
