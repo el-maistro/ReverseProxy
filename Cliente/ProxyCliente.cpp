@@ -142,7 +142,7 @@ void ProxyCliente::m_LoopSession() {
 
 							std::thread th(&ProxyCliente::th_Handle_Session, this, sckPuntoFinal, socket_remoto);
 							th.detach();
-							DEBUG_MSG("[!] Conexion con punto final completa!");
+							DEBUG_MSG("[!] Conexion con punto final completa! SCK-REMOTO:" + std::to_string(socket_remoto) + " SCK-PUNTO_FINAL:" + std::to_string(sckPuntoFinal));
 						}else {
 							vcData[1] = 0x04;
 							DEBUG_ERR("[X] No se pudo conectar al punto final");
@@ -323,8 +323,8 @@ void ProxyCliente::th_Handle_Session(SOCKET _socket_local, SOCKET socket_remoto)
 					size_t nSize = oldSize + (sizeof(SOCKET) * 2);
 					vcData.resize(nSize);
 
-					memcpy(vcData.data() + oldSize, &_socket_local, sizeof(SOCKET));
-					memcpy(vcData.data() + oldSize + sizeof(SOCKET), &socket_remoto, sizeof(SOCKET));
+					memcpy(vcData.data() + oldSize, &socket_remoto, sizeof(SOCKET));
+					memcpy(vcData.data() + oldSize + sizeof(SOCKET), &_socket_local, sizeof(SOCKET));
 
 					int iEnviado = this->sendAll(this->sckMainSocket, vcData.data(), nSize);
 					if (iEnviado == SOCKET_ERROR) {

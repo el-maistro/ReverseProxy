@@ -25,6 +25,7 @@ class Proxy{
 		std::vector<char> m_thS_ReadSocket(SOCKET& _socket, int& _out_recibido);
 		int m_thS_WriteSocket(SOCKET& _socket, const char* _cbuffer, size_t _buff_size);
 
+		bool isRespuestaSegundoPaso(const std::vector<char>& _vcdata, int _recibido);
 
 		void th_Handle_Session(SOCKET _socket_cliente_local, SOCKET _socket_proxy_remoto, SOCKET _socket_remoto_final);
 

@@ -108,9 +108,9 @@ void Proxy::EsperarConexiones() {
 						continue;
 					}
 					
-					DEBUG_MSG("Conexion local aceptada");
-					
 					FD_SET(nSocketLocal, &fdMaster);
+
+					DEBUG_MSG("Conexion local aceptada " + std::to_string(nSocketLocal));
 				}
 			}else if (temp_socket == this->sckRemoteSocket) {
 				//Conexion remota del proxy
@@ -134,6 +134,7 @@ void Proxy::EsperarConexiones() {
 				//Datos del proxy remoto
 				int iRecibido = 0;
 				std::vector<char> vcData = this->m_thS_ReadSocket(temp_socket, iRecibido);
+
 				if (iRecibido > int((sizeof(SOCKET) * 2))) {
 					//Crear thread con puerto local y remoto
 					// remover socket local del FD en este thread
@@ -142,21 +143,22 @@ void Proxy::EsperarConexiones() {
 					size_t iDataSize = iRecibido - (sizeof(SOCKET) * 2);
 					memcpy(&socket_cliente_local,  vcData.data() + iDataSize, sizeof(SOCKET));
 					memcpy(&socket_remoto_punto_final, vcData.data() + (iDataSize + sizeof(SOCKET)), sizeof(SOCKET));
-
+					
 					if (socket_cliente_local != INVALID_SOCKET && socket_remoto_punto_final != INVALID_SOCKET) {
 						//crear thread con los dos sockets
-						if (FD_ISSET(socket_cliente_local, &fdMaster)) {
-							FD_CLR(socket_cliente_local, &fdMaster);
-							int iEnviado = this->sendAll(socket_cliente_local, vcData.data(), iDataSize);
-							if (iEnviado == SOCKET_ERROR) {
-								DEBUG_ERR("[X] Error enviado respuesta de proxy remota a cliente local");
-							}else {
-								std::thread th = std::thread(&Proxy::th_Handle_Session, this, socket_cliente_local, sckTemp_Proxy_Remota, socket_remoto_punto_final);
-								th.detach();
+						if (this->isRespuestaSegundoPaso(vcData, iRecibido)) {
+							if (FD_ISSET(socket_cliente_local, &fdMaster)) {
+								FD_CLR(socket_cliente_local, &fdMaster);
 							}
-						}else {
-							DEBUG_MSG("[X] El socket local no existe en el FD...");
+							std::thread th = std::thread(&Proxy::th_Handle_Session, this, socket_cliente_local, sckTemp_Proxy_Remota, socket_remoto_punto_final);
+							th.detach();
 						}
+						int iEnviado = this->sendAll(socket_cliente_local, vcData.data(), iDataSize);
+						if (iEnviado == SOCKET_ERROR) {
+							DEBUG_ERR("[X] Error enviado respuesta de proxy remota a cliente local");
+						}
+						DEBUG_MSG("[X] SOCKET-LOCAL:" + std::to_string(socket_cliente_local) + " SOCKET-PUNTO-FINAL:" + std::to_string(socket_remoto_punto_final));
+
 					}else if(socket_remoto_punto_final == INVALID_SOCKET && socket_cliente_local != INVALID_SOCKET) {
 						//Aun no se ha conectado al host final en la proxy remota, reenviar datos al puerto local
 						int iEnviado = this->sendAll(socket_cliente_local, vcData.data(), iDataSize);
@@ -328,6 +330,28 @@ int Proxy::m_thS_WriteSocket(SOCKET& _socket, const char* _cbuffer, size_t _buff
 	return this->sendAll(_socket, _cbuffer, _buff_size);
 }
 
+bool Proxy::isRespuestaSegundoPaso(const std::vector<char>& _vcdata, int _recibido) {
+	//  https://datatracker.ietf.org/doc/html/rfc1928
+	/*  +----+-----+-------+------+----------+----------+
+		|VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
+		+----+-----+-------+------+----------+----------+
+		| 1  |  0  | X'00' |  1   | Variable |    2     |
+		+----+-----+-------+------+----------+----------+*/
+	if (_recibido < 4) {
+		return false;
+	}
+
+	if (_vcdata[0] == 0x05 || _vcdata[0] == 0x04) {		                          //SOCKS4 o SOCKS5
+		if (_vcdata[1] == 0x00                                                    // RESPUESTA
+			&& _vcdata[2] == 0x00                                                 // RESERVADO
+			&& (_vcdata[3] == 0x01 || _vcdata[3] == 0x03 || _vcdata[3] == 0x04)   // IPV4 IPV6 Domain Name
+			) {
+			return true;
+		}
+	}
+	return false;
+}
+
 void Proxy::th_Handle_Session(SOCKET _socket_cliente_local, SOCKET _socket_proxy_remoto, SOCKET _socket_remoto_final) {
 	// _socket_cliente_local  = SOCKET_LOCAL / BROWSER / APP
 	// _socket_remoto = SOCKET de la conexion realizada con la proxy remota
@@ -344,6 +368,8 @@ void Proxy::th_Handle_Session(SOCKET _socket_cliente_local, SOCKET _socket_proxy
 	FD_ZERO(&fdClienteMaster);
 	FD_SET(_socket_cliente_local, &fdClienteMaster);
 
+
+	DEBUG_MSG(strPre + " th_Running...");
 	while (isRunning) {
 		fd_set fdMaster_copy = fdClienteMaster;
 		
@@ -405,7 +431,7 @@ std::vector<char> Proxy::strParseIP(const uint8_t* addr, uint8_t addr_type) {
 }
 
 std::string Proxy::strTestBanner() {
-	std::string strHTML = "<br><br><center><h1>Error conectando con el host final</h1></center>";
+	std::string strHTML = "<br><br><center><h1>Error :v</h1></center>";
 	std::string strBanner = "HTTP/1.1 200 OK\r\n"\
 		"Date: Sat, 10 Jan 2011 03:10:00 GMT\r\n"\
 		"Server: Tanuki/1.0\r\n"\
