@@ -123,8 +123,7 @@ void ProxyCliente::m_LoopSession() {
 						strMessage += " Puerto: ";
 						strMessage += std::to_string(iPort);
 						strMessage += " SOCKET: " + std::to_string(socket_remoto);
-						DEBUG_MSG(strMessage);
-
+						
 						const char* cPort      = strPort.c_str();
 						const char* cFinalHost =    cHost.data();
 					
@@ -142,7 +141,7 @@ void ProxyCliente::m_LoopSession() {
 
 							std::thread th(&ProxyCliente::th_Handle_Session, this, sckPuntoFinal, socket_remoto);
 							th.detach();
-							DEBUG_MSG("[!] Conexion con punto final completa! SCK-REMOTO:" + std::to_string(socket_remoto) + " SCK-PUNTO_FINAL:" + std::to_string(sckPuntoFinal));
+							DEBUG_MSG("[!] Conexion con punto final completa! SCK-REMOTO:" + std::to_string(socket_remoto) + " SCK-PUNTO_FINAL:" + std::to_string(sckPuntoFinal) + "\n\t" + strMessage);
 						}else {
 							vcData[1] = 0x04;
 							DEBUG_ERR("[X] No se pudo conectar al punto final");
@@ -150,12 +149,16 @@ void ProxyCliente::m_LoopSession() {
 						}
 					}else {
 						//Datos para enviar al punto final
+						SOCKET socket_remoto      = INVALID_SOCKET;
 						SOCKET socket_punto_final = INVALID_SOCKET;
 
-						memcpy(&socket_punto_final, vcData.data() + (iRecibido - sizeof(SOCKET)), sizeof(SOCKET));
+						size_t nSize = iRecibido - int(sizeof(SOCKET) * 2);
+
+						memcpy(&socket_remoto, vcData.data() + nSize, sizeof(SOCKET));
+						memcpy(&socket_punto_final, vcData.data() + nSize + sizeof(SOCKET), sizeof(SOCKET));
 							
 						if (socket_punto_final != INVALID_SOCKET) {
-							int iEnviado = this->sendAll(socket_punto_final, vcData.data(), iRecibido - sizeof(SOCKET));
+							int iEnviado = this->sendAll(socket_punto_final, vcData.data(), nSize);
 							if (iEnviado == SOCKET_ERROR) {
 								DEBUG_ERR("[X] Error enviando datos al punto final");
 							}
@@ -332,6 +335,8 @@ void ProxyCliente::th_Handle_Session(SOCKET _socket_local, SOCKET socket_remoto)
 						FD_CLR(temp_socket, &fdMaster);
 						closesocket(temp_socket);
 						break;
+					}else {
+						//DEBUG_MSG("[!] " + std::to_string(iEnviado) + " bytes leidos de punto final enviados a servidor");
 					}
 				}else if (iRecibido == SOCKET_ERROR) {
 					FD_CLR(temp_socket, &fdMaster);

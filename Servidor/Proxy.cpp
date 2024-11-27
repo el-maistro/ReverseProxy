@@ -127,8 +127,6 @@ void Proxy::EsperarConexiones() {
 					//Eliminar socket del FD ya que solo se necesita una conexion remota con el proxy?
 					FD_CLR(this->sckRemoteSocket, &fdMaster);
 					closesocket(this->sckRemoteSocket);
-				}else {
-					//DEBUG_ERR("No se pudo aceptar la conexion de la proxy remota");
 				}
 			}else if(temp_socket == sckTemp_Proxy_Remota){
 				//Datos del proxy remoto
@@ -140,7 +138,7 @@ void Proxy::EsperarConexiones() {
 					// remover socket local del FD en este thread
 					SOCKET socket_cliente_local  = INVALID_SOCKET;
 					SOCKET socket_remoto_punto_final = INVALID_SOCKET;
-					size_t iDataSize = iRecibido - (sizeof(SOCKET) * 2);
+					size_t iDataSize = iRecibido - int(sizeof(SOCKET) * 2);
 					memcpy(&socket_cliente_local,  vcData.data() + iDataSize, sizeof(SOCKET));
 					memcpy(&socket_remoto_punto_final, vcData.data() + (iDataSize + sizeof(SOCKET)), sizeof(SOCKET));
 					
@@ -153,26 +151,27 @@ void Proxy::EsperarConexiones() {
 							std::thread th = std::thread(&Proxy::th_Handle_Session, this, socket_cliente_local, sckTemp_Proxy_Remota, socket_remoto_punto_final);
 							th.detach();
 						}
-						int iEnviado = this->sendAll(socket_cliente_local, vcData.data(), iDataSize);
-						if (iEnviado == SOCKET_ERROR) {
-							DEBUG_ERR("[X] Error enviado respuesta de proxy remota a cliente local");
-						}
 						DEBUG_MSG("[X] SOCKET-LOCAL:" + std::to_string(socket_cliente_local) + " SOCKET-PUNTO-FINAL:" + std::to_string(socket_remoto_punto_final));
 
+						int iEnviado = this->sendAll(socket_cliente_local, vcData.data(), iDataSize, true);
+						if (iEnviado == SOCKET_ERROR) {
+							DEBUG_ERR("[X][0] Error enviado respuesta de proxy remota a cliente local");
+						}
+						
 					}else if(socket_remoto_punto_final == INVALID_SOCKET && socket_cliente_local != INVALID_SOCKET) {
 						//Aun no se ha conectado al host final en la proxy remota, reenviar datos al puerto local
 						int iEnviado = this->sendAll(socket_cliente_local, vcData.data(), iDataSize);
 						if (iEnviado == SOCKET_ERROR) {
-							DEBUG_ERR("[X] Error enviado respuesta de proxy remota a cliente local");
+							DEBUG_ERR("[X][1] Error enviado respuesta de proxy remota a cliente local");
 						}
 					}else {
-						DEBUG_MSG("No se pudo parsear los sockets remoto y local");
+						DEBUG_MSG("[X] No se pudo parsear los sockets remoto y local");
 					}
 
 				}else if (iRecibido == SOCKET_ERROR) {
 					DEBUG_ERR("Error leyendo datos del proxy remoto. Reiniciando...");
 
-					std::this_thread::sleep_for(std::chrono::milliseconds(100));
+					std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
 					FD_CLR(temp_socket, &fdMaster);
 					closesocket(temp_socket);
@@ -295,9 +294,14 @@ std::vector<char> Proxy::readAll(SOCKET& _socket, int& _out_recibido) {
 	return vcOut;
 }
 
-int Proxy::sendAll(SOCKET& _socket, const char* _cbuffer, size_t _buff_size) {
+int Proxy::sendAll(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, bool dbg) {
 	int iEnviado = 0;
 	int iTotalEnviado = 0;
+
+	if (dbg) {
+		int _DEBUG_BREAK_DUMMY = 0;
+		int _DEBUG_BREAK_DUMMY_2 = 0;
+	}
 
 	while (iTotalEnviado < _buff_size) {
 		iEnviado = send(_socket, _cbuffer + iTotalEnviado, _buff_size - iTotalEnviado, 0);
@@ -307,9 +311,7 @@ int Proxy::sendAll(SOCKET& _socket, const char* _cbuffer, size_t _buff_size) {
 			int error_code = WSAGetLastError();
 			if (error_code == WSAEWOULDBLOCK) {
 				continue;
-			}else if (error_code == WSAECONNRESET) {
-				return SOCKET_ERROR;
-			}else {
+			} else{
 				return SOCKET_ERROR;
 			}
 		}
