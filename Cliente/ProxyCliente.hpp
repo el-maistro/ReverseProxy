@@ -15,10 +15,11 @@ class ProxyCliente {
 
 		std::vector<char> readAll(SOCKET& _socket, int& _out_recibido);
 		int sendAll(SOCKET& _socket, const char* _cbuffer, size_t _buff_size);
+		int cSend(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, SOCKET _socket_local_remoto, SOCKET _socket_punto_final);
 
 		std::vector<char> strParseIP(const uint8_t* addr, uint8_t addr_type);
 
-		void th_Handle_Session(SOCKET _socket_local, SOCKET _socket_remoto);
+		void th_Handle_Session(SOCKET _socket_punto_final, SOCKET _socket_remoto);
 
 		bool isPrimerPaso(const std::vector<char>& _vcdata, int _recibido);
 		bool isSegundoPaso(const std::vector<char>& _vcdata, int _recibido);

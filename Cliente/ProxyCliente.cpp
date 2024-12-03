@@ -80,16 +80,15 @@ void ProxyCliente::m_LoopSession() {
 				
 				if (iRecibido > 0) {
 					if (this->isPrimerPaso(vcData, iRecibido)){ 
-						std::vector<char> cRespuesta((sizeof(SOCKET)*2) + 2);
+						char cRespuesta[2];
 						cRespuesta[0] = vcData[0];
 						cRespuesta[1] = 0x00;
-						SOCKET dummy_socket = INVALID_SOCKET;
-						memcpy(cRespuesta.data() + 2, vcData.data() + 3, sizeof(SOCKET));
-						memcpy(cRespuesta.data() + 2 + sizeof(SOCKET), &dummy_socket, sizeof(SOCKET));
 
-						int iEnviado = this->sendAll(temp_socket, cRespuesta.data(), cRespuesta.size());
+						//Extraer socket local que mando datos atraves del servidor
+						SOCKET socket_local_remoto = INVALID_SOCKET;
+						memcpy(&socket_local_remoto, vcData.data() + 3, sizeof(SOCKET));
 
-						if (iEnviado == SOCKET_ERROR) {
+						if(this->cSend(temp_socket, cRespuesta, 2, socket_local_remoto, INVALID_SOCKET) == SOCKET_ERROR) {
 							DEBUG_ERR("[X] No se pudo responder al primer paso");
 						}
 					}else if (this->isSegundoPaso(vcData, iRecibido)){
@@ -103,66 +102,85 @@ void ProxyCliente::m_LoopSession() {
 							uAddr += 4;
 							cHost = this->strParseIP(uAddr, cHostType);
 						}else {
-							size_t host_len = iRecibido - sizeof(SOCKET) - 7;
-							cHost.resize(iRecibido - 6 - sizeof(SOCKET));
+							size_t socketsSize = sizeof(SOCKET) * 2;
+							size_t head_len = 4; // VER | CMD |  RSV  | ATYP
+							size_t port_len = 2;
+							size_t host_len = iRecibido - socketsSize - head_len - port_len -1;
+							cHost.resize(iRecibido - socketsSize - head_len - port_len);
 							memcpy(cHost.data(), vcData.data() + 5, host_len);
 						}
 
+						//Extraer puerto al cual conectarse del paquete
 						u_short nPort = 0;
 						int iPort = 0;
-						memcpy(&nPort, vcData.data() + (iRecibido - sizeof(SOCKET) - 2), 2);
-
+						size_t nPortOffset = iRecibido - (sizeof(SOCKET) * 2) - 2;
+						memcpy(&nPort, vcData.data() + nPortOffset, 2);
 						iPort = static_cast<int>(ntohs(nPort));
 
-						SOCKET socket_remoto = INVALID_SOCKET;
-						memcpy(&socket_remoto, vcData.data() + (iRecibido - sizeof(SOCKET)), sizeof(SOCKET));
+						//Extraer socket local que mando datos atraves del servidor
+						SOCKET socket_local_remoto = INVALID_SOCKET;
+						size_t nSocketLocalRemotoOffset = iRecibido - (sizeof(SOCKET) * 2);
+						memcpy(&socket_local_remoto, vcData.data() + nSocketLocalRemotoOffset, sizeof(SOCKET));
 
 						std::string strPort = std::to_string(iPort);
-						std::string strMessage = "Peticion recibida\n\tHost: ";
-						strMessage += cHost.data();
-						strMessage += " Puerto: ";
-						strMessage += std::to_string(iPort);
-						strMessage += " SOCKET: " + std::to_string(socket_remoto);
 						
 						const char* cPort      = strPort.c_str();
 						const char* cFinalHost =    cHost.data();
 					
+						std::string strMessage = "Peticion recibida\n\tHost: ";
+						strMessage += cHost.data();
+						strMessage += " Puerto: ";
+						strMessage += std::to_string(iPort);
+						strMessage += " SOCKET: " + std::to_string(socket_local_remoto);
+
+						DEBUG_MSG("\t" + strMessage);
+
 						SOCKET sckPuntoFinal = this->m_sckConectar(cFinalHost, cPort);
 
-						//Alojar espacio para agregar el socket del punto final
-						size_t nSize = iRecibido + sizeof(SOCKET);
-						vcData.resize(nSize);
-						memcpy(vcData.data() + iRecibido, &sckPuntoFinal, sizeof(SOCKET));
+						size_t nSize = iRecibido - (sizeof(SOCKET) * 2);
 
 						if (sckPuntoFinal != INVALID_SOCKET) {
-							//Crear thread que leer del punto final
 							vcData[1] = 0x00;
 
-							this->sendAll(temp_socket, vcData.data(), nSize);
+							if (this->cSend(temp_socket, vcData.data(), nSize, socket_local_remoto, sckPuntoFinal) != SOCKET_ERROR) {
+								//Crear thread que leer del punto final
+								std::thread th(&ProxyCliente::th_Handle_Session, this, sckPuntoFinal, socket_local_remoto);
+								th.detach();
+								
+								DEBUG_MSG("[!] Conexion con punto final completa! SCK-REMOTO:" + std::to_string(socket_local_remoto) + " SCK-PUNTO_FINAL:" + std::to_string(sckPuntoFinal));
+							}else {
+								DEBUG_ERR("[X] Conexion con punto final completa pero no se pudo enviar la confirmacion al servidor. Adios...");
+								closesocket(sckPuntoFinal);
+								FD_CLR(temp_socket, &fdMaster_Copy);
+								closesocket(temp_socket);
+								isConnected = false;
+								break;
+							}
 
-							std::thread th(&ProxyCliente::th_Handle_Session, this, sckPuntoFinal, socket_remoto);
-							th.detach();
-							DEBUG_MSG("[!] Conexion con punto final completa! SCK-REMOTO:" + std::to_string(socket_remoto) + " SCK-PUNTO_FINAL:" + std::to_string(sckPuntoFinal) + "\n\t" + strMessage);
 						}else {
 							vcData[1] = 0x04;
 							DEBUG_ERR("[X] No se pudo conectar al punto final");
-							this->sendAll(temp_socket, vcData.data(), nSize);
+							if (this->cSend(temp_socket, vcData.data(), nSize, socket_local_remoto, sckPuntoFinal) == SOCKET_ERROR) {
+								DEBUG_ERR("[X] No se pudo enviar respuest al servidor");
+								FD_CLR(temp_socket, &fdMaster_Copy);
+								closesocket(temp_socket);
+								isConnected = false;
+								break;
+							}
 						}
 					}else {
 						//Datos para enviar al punto final
-						SOCKET socket_remoto      = INVALID_SOCKET;
-						SOCKET socket_punto_final = INVALID_SOCKET;
+						SOCKET socket_local_remoto = INVALID_SOCKET;  // <-- Sin uso por los momentos
+						SOCKET socket_punto_final  = INVALID_SOCKET;
 
 						size_t nSize = iRecibido - int(sizeof(SOCKET) * 2);
 
-						memcpy(&socket_remoto, vcData.data() + nSize, sizeof(SOCKET));
+						memcpy(&socket_local_remoto, vcData.data() + nSize, sizeof(SOCKET));
 						memcpy(&socket_punto_final, vcData.data() + nSize + sizeof(SOCKET), sizeof(SOCKET));
 							
 						if (socket_punto_final != INVALID_SOCKET) {
-							int iEnviado = this->sendAll(socket_punto_final, vcData.data(), nSize);
-							if (iEnviado == SOCKET_ERROR) {
+							if(this->sendAll(socket_punto_final, vcData.data(), nSize) == SOCKET_ERROR) {
 								DEBUG_ERR("[X] Error enviando datos al punto final");
-								DEBUG_MSG("[SOCKET] punto_final: " + std::to_string(socket_punto_final) + "\n[SOCKET-Remoto]: " + std::to_string(socket_remoto));
 							}
 						}else {
 							DEBUG_ERR("[X] No se pudo parsear el SOCKET");
@@ -283,6 +301,17 @@ int ProxyCliente::sendAll(SOCKET& _socket, const char* _cbuffer, size_t _buff_si
 	return iTotalEnviado;
 }
 
+int ProxyCliente::cSend(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, SOCKET _socket_local_remoto, SOCKET _socket_punto_final) {
+	size_t nSize = _buff_size + (sizeof(SOCKET) * 2);
+	std::vector<char> finalData(nSize);
+	
+	memcpy(finalData.data(), _cbuffer, _buff_size);
+	memcpy(finalData.data() + _buff_size, &_socket_local_remoto, sizeof(SOCKET));
+	memcpy(finalData.data() + _buff_size + sizeof(SOCKET), &_socket_punto_final, sizeof(SOCKET));
+
+	return this->sendAll(_socket, finalData.data(), nSize);
+}
+
 std::vector<char> ProxyCliente::strParseIP(const uint8_t* addr, uint8_t addr_type) {
 	int addr_size = 0;
 	int iFamily = 0;
@@ -300,9 +329,9 @@ std::vector<char> ProxyCliente::strParseIP(const uint8_t* addr, uint8_t addr_typ
 	return vc_ip;
 }
 
-void ProxyCliente::th_Handle_Session(SOCKET _socket_local, SOCKET socket_remoto) {
+void ProxyCliente::th_Handle_Session(SOCKET _socket_punto_final, SOCKET _socket_remoto) {
 	// this->sckMainsocket = SOCKET servidor 
-	// _socket_local       = SOCKET con punto final
+	// _socket_punto_final = SOCKET con punto final
 	// socket_remoto       = SOCKET de servidor con cliente/browser
 	struct timeval timeout;
 	timeout.tv_sec = 5;
@@ -310,39 +339,29 @@ void ProxyCliente::th_Handle_Session(SOCKET _socket_local, SOCKET socket_remoto)
 
 	fd_set fdMaster;
 	FD_ZERO(&fdMaster);
-	FD_SET(_socket_local, &fdMaster);
+	FD_SET(_socket_punto_final, &fdMaster);
 
 	while (1) {
 		fd_set fdMaster_Copy = fdMaster;
 
-		int iNumeroSockets = select(_socket_local + 1, &fdMaster_Copy, nullptr, nullptr, &timeout);
+		int iNumeroSockets = select(_socket_punto_final + 1, &fdMaster_Copy, nullptr, nullptr, &timeout);
 		for (int index = 0; index < iNumeroSockets; index++) {
 			SOCKET temp_socket = fdMaster_Copy.fd_array[index];
 
-			if (temp_socket == _socket_local) {
+			if (temp_socket == _socket_punto_final) {
 				//Datos del punto final. Reenviar a servidor junto con informacion de SOCKETS
 				int iRecibido = 0;
-				std::vector<char> vcData = this->readAll(temp_socket, iRecibido);
+				std::vector<char> vcData = this->readAll(_socket_punto_final, iRecibido);
 				if(iRecibido > 0){
-					size_t oldSize = vcData.size();
-					size_t nSize = oldSize + (sizeof(SOCKET) * 2);
-					vcData.resize(nSize);
-
-					memcpy(vcData.data() + oldSize, &socket_remoto, sizeof(SOCKET));
-					memcpy(vcData.data() + oldSize + sizeof(SOCKET), &_socket_local, sizeof(SOCKET));
-
-					int iEnviado = this->sendAll(this->sckMainSocket, vcData.data(), nSize);
-					if (iEnviado == SOCKET_ERROR) {
+					if(this->cSend(this->sckMainSocket, vcData.data(), iRecibido, _socket_remoto, _socket_punto_final) == SOCKET_ERROR) {
 						DEBUG_ERR("[X] Error enviado respuesta del punto final");
 						FD_CLR(temp_socket, &fdMaster);
 						closesocket(temp_socket);
 						break;
-					}else {
-						//DEBUG_MSG("[!] " + std::to_string(iEnviado) + " bytes leidos de punto final enviados a servidor");
 					}
 				}else if (iRecibido == SOCKET_ERROR) {
-					FD_CLR(temp_socket, &fdMaster);
-					closesocket(temp_socket);
+					FD_CLR(_socket_punto_final, &fdMaster);
+					closesocket(_socket_punto_final);
 					break;
 				}
 			}
@@ -353,7 +372,7 @@ void ProxyCliente::th_Handle_Session(SOCKET _socket_local, SOCKET socket_remoto)
 }
 
 bool ProxyCliente::isPrimerPaso(const std::vector<char>& _vcdata, int _recibido) {
-	if (_recibido != 11) {
+	if (_recibido != 19) {
 		return false;
 	}
 
