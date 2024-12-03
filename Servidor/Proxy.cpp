@@ -156,6 +156,7 @@ void Proxy::EsperarConexiones() {
 						int iEnviado = this->sendAll(socket_cliente_local, vcData.data(), iDataSize, true);
 						if (iEnviado == SOCKET_ERROR) {
 							DEBUG_ERR("[X][0] Error enviado respuesta de proxy remota a cliente local");
+							DEBUG_MSG("\t[-] VCDATA: " + (vcData.size() > 0 ? std::string(vcData.data()) : "EMPTY") + "\n\t[SCK]: " + std::to_string(socket_cliente_local));
 						}
 						
 					}else if(socket_remoto_punto_final == INVALID_SOCKET && socket_cliente_local != INVALID_SOCKET) {
@@ -192,6 +193,8 @@ void Proxy::EsperarConexiones() {
 						isRunning = false;
 						break;
 					}
+				}else {
+					DEBUG_MSG("[!] Paquete muy pequeno: " + std::to_string(iRecibido));
 				}
 			}else {
 				//Datos del navegador/cliente local
@@ -210,6 +213,7 @@ void Proxy::EsperarConexiones() {
 					} 
 				}else if (iRecibido == SOCKET_ERROR) {
 					DEBUG_ERR("[X] Error leyendo datos del navegador/cliente local");
+					DEBUG_MSG("\t[-] VCDATA: " + (vcData.size() > 0 ? std::string(vcData.data()) : "EMPTY") + "\n\t[SCK]: " + std::to_string(temp_socket));
 					FD_CLR(temp_socket, &fdMaster);
 					closesocket(temp_socket);
 				}

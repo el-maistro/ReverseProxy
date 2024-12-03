@@ -128,14 +128,15 @@ void ProxyCliente::m_LoopSession() {
 						const char* cFinalHost =    cHost.data();
 					
 						SOCKET sckPuntoFinal = this->m_sckConectar(cFinalHost, cPort);
+
+						//Alojar espacio para agregar el socket del punto final
+						size_t nSize = iRecibido + sizeof(SOCKET);
+						vcData.resize(nSize);
+						memcpy(vcData.data() + iRecibido, &sckPuntoFinal, sizeof(SOCKET));
+
 						if (sckPuntoFinal != INVALID_SOCKET) {
 							//Crear thread que leer del punto final
 							vcData[1] = 0x00;
-
-							//Alojar espacio para agregar el socket del punto final
-							size_t nSize = iRecibido + sizeof(SOCKET);
-							vcData.resize(nSize);
-							memcpy(vcData.data() + iRecibido, &sckPuntoFinal, sizeof(SOCKET));
 
 							this->sendAll(temp_socket, vcData.data(), nSize);
 
@@ -145,7 +146,7 @@ void ProxyCliente::m_LoopSession() {
 						}else {
 							vcData[1] = 0x04;
 							DEBUG_ERR("[X] No se pudo conectar al punto final");
-							this->sendAll(temp_socket, vcData.data(), iRecibido);
+							this->sendAll(temp_socket, vcData.data(), nSize);
 						}
 					}else {
 						//Datos para enviar al punto final
@@ -161,6 +162,7 @@ void ProxyCliente::m_LoopSession() {
 							int iEnviado = this->sendAll(socket_punto_final, vcData.data(), nSize);
 							if (iEnviado == SOCKET_ERROR) {
 								DEBUG_ERR("[X] Error enviando datos al punto final");
+								DEBUG_MSG("[SOCKET] punto_final: " + std::to_string(socket_punto_final) + "\n[SOCKET-Remoto]: " + std::to_string(socket_remoto));
 							}
 						}else {
 							DEBUG_ERR("[X] No se pudo parsear el SOCKET");
