@@ -14,8 +14,11 @@ class ProxyCliente {
 		SOCKET m_sckConectar(const char* _host, const char* _puerto);
 
 		std::vector<char> readAll(SOCKET& _socket, int& _out_recibido);
+		std::vector<char> readAllLocal(SOCKET& _socket, int& _out_recibido);
 		int sendAll(SOCKET& _socket, const char* _cbuffer, size_t _buff_size);
+		int sendAllLocal(SOCKET& _socket, const char* _cbuffer, int _buff_size);
 		int cSend(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, SOCKET _socket_local_remoto, SOCKET _socket_punto_final);
+		int cRecv(SOCKET& _socket, std::vector<char>& _out_buffer, SOCKET& _socket_local_remoto, SOCKET& _socket_punto_final);
 
 		std::vector<char> strParseIP(const uint8_t* addr, uint8_t addr_type);
 

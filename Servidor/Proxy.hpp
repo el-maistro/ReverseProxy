@@ -20,8 +20,11 @@ class Proxy{
 		SOCKET m_Conectar(const char*& _host, const char*& _puerto);
 		SOCKET m_Aceptar(SOCKET& _socket);
 		std::vector<char> readAll(SOCKET& _socket, int& _out_recibido);
-		int sendAll(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, bool dbg = false);
+		std::vector<char> readAllLocal(SOCKET& _socket, int& _out_recibido);
+		int sendAll(SOCKET& _socket, const char* _cbuffer, int _buff_size, bool dbg = false);
+		int sendAllLocal(SOCKET& _socket, const char* _cbuffer, int _buff_size, bool dbg = false);
 		int cSend(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, SOCKET _socket_local_remoto, SOCKET _socket_punto_final);
+		int cRecv(SOCKET& _socket, std::vector<char>& _out_buffer, SOCKET& _socket_local_remoto, SOCKET& _socket_punto_final);
 
 		std::vector<char> m_thS_ReadSocket(SOCKET& _socket, int& _out_recibido);
 		int m_thS_WriteSocket(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, SOCKET _socket_local_remoto, SOCKET _socket_punto_final);
