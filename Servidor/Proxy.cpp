@@ -69,7 +69,6 @@ SOCKET Proxy::m_Aceptar(SOCKET& _socket) {
 }
 
 void Proxy::EsperarConexiones() {
-
 	struct timeval timeout;
 	timeout.tv_sec = 1;
 	timeout.tv_usec = 0;
@@ -81,6 +80,11 @@ void Proxy::EsperarConexiones() {
 		DEBUG_MSG("Los sockets no estan configurados...");
 		return;
 	}
+
+	//Timeout para el socket de escucha local
+	DWORD timeout_local_socket = 100; //100 miliseconds timeout
+	setsockopt(this->sckLocalSocket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout_local_socket, sizeof timeout_local_socket);
+
 	FD_SET(this->sckLocalSocket, &fdMaster);
 	FD_SET(this->sckRemoteSocket, &fdMaster);
 	
@@ -101,7 +105,7 @@ void Proxy::EsperarConexiones() {
 				//Conexion local entrante (browser, etc)
 
 				SOCKET nSocketLocal = this->m_Aceptar(this->sckLocalSocket);
-
+				
 				if (nSocketLocal != INVALID_SOCKET) {
 					if (sckTemp_Proxy_Remota == INVALID_SOCKET) {
 						//DEBUG_MSG("[!] El cliente/proxy-remota no se ha conectado. Rechazando conexion");
@@ -110,8 +114,7 @@ void Proxy::EsperarConexiones() {
 					}
 					
 					FD_SET(nSocketLocal, &fdMaster);
-
-					//DEBUG_MSG("Conexion local aceptada " + std::to_string(nSocketLocal));
+					DEBUG_MSG("Conexion local aceptada " + std::to_string(nSocketLocal));
 				}
 
 			}else if (temp_socket == this->sckRemoteSocket) {
@@ -501,7 +504,7 @@ void Proxy::th_Handle_Session(SOCKET _socket_cliente_local, SOCKET _socket_proxy
 	FD_SET(_socket_cliente_local, &fdClienteMaster);
 
 
-	//DEBUG_MSG(strPre + " th_Running...");
+	DEBUG_MSG(strPre + " th_Running...");
 	while (isRunning) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		fd_set fdMaster_copy = fdClienteMaster;
@@ -535,6 +538,7 @@ void Proxy::th_Handle_Session(SOCKET _socket_cliente_local, SOCKET _socket_proxy
 	if (FD_ISSET(_socket_cliente_local, &fdClienteMaster)) {
 		FD_CLR(_socket_cliente_local, &fdClienteMaster);
 	}
+	DEBUG_MSG(strPre + " closing...");
 }
 
 std::vector<char> Proxy::SckToVCchar(SOCKET _socket) {
@@ -546,7 +550,7 @@ std::vector<char> Proxy::SckToVCchar(SOCKET _socket) {
 
 	if (_socket != INVALID_SOCKET) {
 		std::string strSocket = std::to_string(_socket);
-		memcpy(vcout.data(), strSocket.c_str(), strSocket.size());
+		memcpy(vcout.data(), strSocket.c_str(), 5);
 	}
 	return vcout;
 }
@@ -560,7 +564,7 @@ SOCKET Proxy::VCcharToSck(const char* _cdata) {
 		}
 	}
 
-	return atoi(vc_copy.data());;
+	return atoi(vc_copy.data());
 }
 
 std::vector<char> Proxy::strParseIP(const uint8_t* addr, uint8_t addr_type) {

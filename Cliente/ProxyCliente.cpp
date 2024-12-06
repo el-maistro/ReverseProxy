@@ -84,7 +84,7 @@ void ProxyCliente::m_LoopSession() {
 				int iRecibido = this->cRecv(temp_socket, vcData, socket_local_remoto, socket_punto_final);
 				
 				if (iRecibido > 0) {
-					if (this->isPrimerPaso(vcData, iRecibido)){ 
+					if (this->isSocksPrimerPaso(vcData, iRecibido)){
 						//DEBUG_MSG("\n\t[!]Primer paso");
 						char cRespuesta[2];
 						cRespuesta[0] = vcData[0];
@@ -93,7 +93,7 @@ void ProxyCliente::m_LoopSession() {
 						if(this->cSend(temp_socket, cRespuesta, 2, socket_local_remoto, socket_punto_final) == SOCKET_ERROR) {
 							DEBUG_ERR("[X] No se pudo responder al primer paso");
 						}
-					}else if (this->isSegundoPaso(vcData, iRecibido)){
+					}else if (this->isSocksSegundoPaso(vcData, iRecibido)){
 						//Segundo paquete, informacion de conexion 
 						//DEBUG_MSG("\n\t[!]Segundo paso");
 						char cHostType = vcData[3];
@@ -160,7 +160,9 @@ void ProxyCliente::m_LoopSession() {
 								break;
 							}
 						}
-					}else {
+					} /* else if is HTTP proxy Request*/
+					
+					else {
 						//Datos para enviar al punto final
 						if (socket_punto_final != INVALID_SOCKET) {
 							if(this->sendAllLocal(socket_punto_final, vcData.data(), iRecibido) == SOCKET_ERROR) {
@@ -416,7 +418,7 @@ std::vector<char> ProxyCliente::SckToVCchar(SOCKET _socket) {
 
 	if (_socket != INVALID_SOCKET) {
 		std::string strSocket = std::to_string(_socket);
-		memcpy(vcout.data(), strSocket.c_str(), strSocket.size());
+		memcpy(vcout.data(), strSocket.c_str(), 5);
 	}
 	return vcout;
 }
@@ -430,7 +432,7 @@ SOCKET ProxyCliente::VCcharToSck(const char* _cdata) {
 		}
 	}
 
-	return atoi(vc_copy.data());;
+	return atoi(vc_copy.data());
 }
 
 std::vector<char> ProxyCliente::strParseIP(const uint8_t* addr, uint8_t addr_type) {
@@ -501,7 +503,7 @@ void ProxyCliente::th_Handle_Session(SOCKET _socket_punto_final, SOCKET _socket_
 	return;
 }
 
-bool ProxyCliente::isPrimerPaso(const std::vector<char>& _vcdata, int _recibido) {
+bool ProxyCliente::isSocksPrimerPaso(const std::vector<char>& _vcdata, int _recibido) {
 	if (_recibido != 3) {
 		return false;
 	}
@@ -515,7 +517,7 @@ bool ProxyCliente::isPrimerPaso(const std::vector<char>& _vcdata, int _recibido)
 	return false;
 }
 
-bool ProxyCliente::isSegundoPaso(const std::vector<char>& _vcdata, int _recibido) {
+bool ProxyCliente::isSocksSegundoPaso(const std::vector<char>& _vcdata, int _recibido) {
 	//  https://datatracker.ietf.org/doc/html/rfc1928
 	/*  +----+-----+-------+------+----------+----------+
 		|VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
