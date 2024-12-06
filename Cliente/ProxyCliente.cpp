@@ -141,8 +141,6 @@ void ProxyCliente::m_LoopSession() {
 								//Crear thread que leer del punto final
 								std::thread th(&ProxyCliente::th_Handle_Session, this, sckPuntoFinal, socket_local_remoto, std::string(cHost.data()));
 								th.detach();
-								
-								//DEBUG_MSG("[!] Conexion con punto final completa! SCK-REMOTO:" + std::to_string(socket_local_remoto) + " SCK-PUNTO_FINAL:" + std::to_string(sckPuntoFinal));
 							}else {
 								DEBUG_ERR("[X] Conexion con punto final completa pero no se pudo enviar la confirmacion al servidor. Adios...");
 								closesocket(sckPuntoFinal);
@@ -151,7 +149,6 @@ void ProxyCliente::m_LoopSession() {
 								isConnected = false;
 								break;
 							}
-
 						}else {
 							vcData[1] = 0x04;
 							DEBUG_ERR("[X] No se pudo conectar al punto final");
@@ -165,7 +162,6 @@ void ProxyCliente::m_LoopSession() {
 						}
 					}else {
 						//Datos para enviar al punto final
-						
 						if (socket_punto_final != INVALID_SOCKET) {
 							if(this->sendAllLocal(socket_punto_final, vcData.data(), iRecibido) == SOCKET_ERROR) {
 								DEBUG_ERR("[X] Error enviando datos al punto final");
@@ -365,36 +361,76 @@ int ProxyCliente::sendAllLocal(SOCKET& _socket, const char* _cbuffer, int _buff_
 }
 
 int ProxyCliente::cSend(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, SOCKET _socket_local_remoto, SOCKET _socket_punto_final) {
-	size_t nSize = _buff_size + (sizeof(SOCKET) * 2);
+	//size_t nSize = _buff_size + (sizeof(SOCKET) * 2);
+	size_t nSize = _buff_size + 12;
 	std::vector<char> finalData(nSize);
-	
+
+	//   DATA | SOCKET_CLIENTE_LOCAL | SOCKET_PUNTO_FINAL
+
 	memcpy(finalData.data(), _cbuffer, _buff_size);
-	memcpy(finalData.data() + _buff_size, &_socket_local_remoto, sizeof(SOCKET));
-	memcpy(finalData.data() + _buff_size + sizeof(SOCKET), &_socket_punto_final, sizeof(SOCKET));
+
+	std::vector<char> vc_socket_local_remoto = this->SckToVCchar(_socket_local_remoto);
+	std::vector<char> vc_socket_punto_final = this->SckToVCchar(_socket_punto_final);
+
+	memcpy(finalData.data() + _buff_size, vc_socket_local_remoto.data(), 6);
+	memcpy(finalData.data() + _buff_size + 6, vc_socket_punto_final.data(), 6);
+	//memcpy(finalData.data() + _buff_size, &_socket_local_remoto, sizeof(SOCKET));
+	//memcpy(finalData.data() + _buff_size + sizeof(SOCKET), &_socket_punto_final, sizeof(SOCKET));
 
 	return this->sendAll(_socket, finalData.data(), nSize);
 }
 
 int ProxyCliente::cRecv(SOCKET& _socket, std::vector<char>& _out_buffer, SOCKET& _socket_local_remoto, SOCKET& _socket_punto_final) {
 	int iRecibido = 0;
-	int iMinimo = int(sizeof(SOCKET) * 2);
-	
+	int iMinimo = 12; // (sizeof(SOCKET)*2)
+
 	_out_buffer = this->readAll(_socket, iRecibido);
 
 	if (iRecibido == SOCKET_ERROR) {
 		return iRecibido;
-	}else if (iRecibido < iMinimo) {
+	}
+	else if (iRecibido < iMinimo) {
 		return 0;
 	}
 
-	int iSocketsOffset = iRecibido - int(sizeof(SOCKET) * 2);
+	int iSocketsOffset = iRecibido - iMinimo;
 
-	memcpy(&_socket_local_remoto, _out_buffer.data() + iSocketsOffset, sizeof(SOCKET));
-	memcpy(&_socket_punto_final, _out_buffer.data() + iSocketsOffset + sizeof(SOCKET), sizeof(SOCKET));
+	_socket_local_remoto = this->VCcharToSck(_out_buffer.data() + iSocketsOffset);
+	_socket_punto_final = this->VCcharToSck(_out_buffer.data() + iSocketsOffset + 6);
+
+	//memcpy(&_socket_local_remoto, _out_buffer.data() + iSocketsOffset, sizeof(SOCKET));
+	//memcpy(&_socket_punto_final, _out_buffer.data() + iSocketsOffset + sizeof(SOCKET), sizeof(SOCKET));
 
 	_out_buffer.erase(_out_buffer.begin() + iSocketsOffset, _out_buffer.end());
 
-	return iSocketsOffset; 
+
+	return iSocketsOffset;
+}
+
+std::vector<char> ProxyCliente::SckToVCchar(SOCKET _socket) {
+	std::vector<char> vcout(6);
+	for (char& c : vcout) {
+		c = '-';
+	}
+	vcout[5] = '\0';
+
+	if (_socket != INVALID_SOCKET) {
+		std::string strSocket = std::to_string(_socket);
+		memcpy(vcout.data(), strSocket.c_str(), strSocket.size());
+	}
+	return vcout;
+}
+
+SOCKET ProxyCliente::VCcharToSck(const char* _cdata) {
+	std::vector<char> vc_copy(6);
+	memcpy(vc_copy.data(), _cdata, 6);
+	for (char& c : vc_copy) {
+		if (c == '-') {
+			c = '\0';
+		}
+	}
+
+	return atoi(vc_copy.data());;
 }
 
 std::vector<char> ProxyCliente::strParseIP(const uint8_t* addr, uint8_t addr_type) {

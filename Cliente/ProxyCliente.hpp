@@ -20,6 +20,8 @@ class ProxyCliente {
 		int cSend(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, SOCKET _socket_local_remoto, SOCKET _socket_punto_final);
 		int cRecv(SOCKET& _socket, std::vector<char>& _out_buffer, SOCKET& _socket_local_remoto, SOCKET& _socket_punto_final);
 
+		std::vector<char> SckToVCchar(SOCKET _socket);
+		SOCKET VCcharToSck(const char* _cdata);
 		std::vector<char> strParseIP(const uint8_t* addr, uint8_t addr_type);
 
 		void th_Handle_Session(SOCKET _socket_punto_final, SOCKET _socket_remoto, std::string _host);

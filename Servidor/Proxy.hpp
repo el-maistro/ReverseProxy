@@ -33,6 +33,9 @@ class Proxy{
 
 		void th_Handle_Session(SOCKET _socket_cliente_local, SOCKET _socket_proxy_remoto, SOCKET _socket_punto_final);
 
+		//Parsing
+		std::vector<char> SckToVCchar(SOCKET _socket);
+		SOCKET VCcharToSck(const char* _cdata);
 		std::vector<char> strParseIP(const uint8_t* addr, uint8_t addr_type);
 		std::string strTestBanner();
 };
