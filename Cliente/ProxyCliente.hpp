@@ -22,7 +22,7 @@ class ProxyCliente {
 
 		std::vector<char> strParseIP(const uint8_t* addr, uint8_t addr_type);
 
-		void th_Handle_Session(SOCKET _socket_punto_final, SOCKET _socket_remoto);
+		void th_Handle_Session(SOCKET _socket_punto_final, SOCKET _socket_remoto, std::string _host);
 
 		bool isPrimerPaso(const std::vector<char>& _vcdata, int _recibido);
 		bool isSegundoPaso(const std::vector<char>& _vcdata, int _recibido);

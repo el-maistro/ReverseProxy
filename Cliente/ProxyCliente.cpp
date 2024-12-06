@@ -139,7 +139,7 @@ void ProxyCliente::m_LoopSession() {
 
 							if (this->cSend(temp_socket, vcData.data(), iRecibido, socket_local_remoto, sckPuntoFinal) != SOCKET_ERROR) {
 								//Crear thread que leer del punto final
-								std::thread th(&ProxyCliente::th_Handle_Session, this, sckPuntoFinal, socket_local_remoto);
+								std::thread th(&ProxyCliente::th_Handle_Session, this, sckPuntoFinal, socket_local_remoto, std::string(cHost.data()));
 								th.detach();
 								
 								//DEBUG_MSG("[!] Conexion con punto final completa! SCK-REMOTO:" + std::to_string(socket_local_remoto) + " SCK-PUNTO_FINAL:" + std::to_string(sckPuntoFinal));
@@ -414,7 +414,7 @@ std::vector<char> ProxyCliente::strParseIP(const uint8_t* addr, uint8_t addr_typ
 	return vc_ip;
 }
 
-void ProxyCliente::th_Handle_Session(SOCKET _socket_punto_final, SOCKET _socket_remoto) {
+void ProxyCliente::th_Handle_Session(SOCKET _socket_punto_final, SOCKET _socket_remoto, std::string _host) {
 	// this->sckMainsocket = SOCKET servidor 
 	// _socket_punto_final = SOCKET con punto final
 	// socket_remoto       = SOCKET de servidor con cliente/browser
@@ -426,7 +426,11 @@ void ProxyCliente::th_Handle_Session(SOCKET _socket_punto_final, SOCKET _socket_
 	FD_ZERO(&fdMaster);
 	FD_SET(_socket_punto_final, &fdMaster);
 
-	while (1) {
+	DEBUG_MSG("[!] INIT: " + _host);
+
+	bool isRunning = true;
+
+	while (isRunning) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		fd_set fdMaster_Copy = fdMaster;
 
@@ -443,18 +447,20 @@ void ProxyCliente::th_Handle_Session(SOCKET _socket_punto_final, SOCKET _socket_
 						DEBUG_ERR("[X] Error enviado respuesta del punto final");
 						FD_CLR(temp_socket, &fdMaster);
 						closesocket(temp_socket);
+						isRunning = false;
 						break;
-					}else {
-						//DEBUG_MSG("\t[!] Reenvio de punto final a servidor completo");
 					}
 				}else if (iRecibido == SOCKET_ERROR) {
 					FD_CLR(_socket_punto_final, &fdMaster);
 					closesocket(_socket_punto_final);
+					isRunning = false;
 					break;
 				}
 			}
 		}
 	}
+
+	DEBUG_MSG("[!] END: " + _host);
 
 	return;
 }
