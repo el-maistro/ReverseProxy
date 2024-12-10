@@ -318,6 +318,7 @@ std::vector<char> Proxy::readAllLocal(SOCKET& _socket, int& _out_recibido) {
 		char cTempBuffer[1024];
 		iRecibido = recv(_socket, cTempBuffer, iChunk, 0);
 		if (iRecibido == 0) {
+			_out_recibido == SOCKET_ERROR ? iRecibido : _out_recibido;
 			break;
 		}
 		else if (iRecibido == SOCKET_ERROR) {
@@ -453,6 +454,53 @@ int Proxy::cRecv(SOCKET& _socket, std::vector<char>& _out_buffer, SOCKET& _socke
 
 	return iSocketsOffset;
 }
+
+
+//int Proxy::cSend(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, int _id_conexion) {
+//	//size_t nSize = _buff_size + (sizeof(SOCKET) * 2);
+//	size_t nSize = _buff_size + 12;
+//	std::vector<char> finalData(nSize);
+//
+//	//   DATA | SOCKET_CLIENTE_LOCAL | SOCKET_PUNTO_FINAL
+//
+//	memcpy(finalData.data(), _cbuffer, _buff_size);
+//
+//	
+//
+//	//memcpy(finalData.data() + _buff_size, vc_socket_local_remoto.data(), 6);
+//	//memcpy(finalData.data() + _buff_size + 6, vc_socket_punto_final.data(), 6);
+//	//memcpy(finalData.data() + _buff_size, &_socket_local_remoto, sizeof(SOCKET));
+//	//memcpy(finalData.data() + _buff_size + sizeof(SOCKET), &_socket_punto_final, sizeof(SOCKET));
+//
+//	return this->sendAll(_socket, finalData.data(), nSize);
+//}
+
+//int Proxy::cRecv(SOCKET& _socket, std::vector<char>& _out_buffer, int _id_conexion) {
+//	int iRecibido = 0;
+//	int iMinimo = 12; // (sizeof(SOCKET)*2)
+//
+//	_out_buffer = this->m_thS_ReadSocket(_socket, iRecibido);
+//
+//	if (iRecibido == SOCKET_ERROR) {
+//		return iRecibido;
+//	}
+//	else if (iRecibido < iMinimo) {
+//		return 0;
+//	}
+//
+//	int iSocketsOffset = iRecibido - iMinimo;
+//
+//	_socket_local_remoto = this->VCcharToSck(_out_buffer.data() + iSocketsOffset);
+//	_socket_punto_final = this->VCcharToSck(_out_buffer.data() + iSocketsOffset + 6);
+//
+//	//memcpy(&_socket_local_remoto, _out_buffer.data() + iSocketsOffset, sizeof(SOCKET));
+//	//memcpy(&_socket_punto_final, _out_buffer.data() + iSocketsOffset + sizeof(SOCKET), sizeof(SOCKET));
+//
+//	_out_buffer.erase(_out_buffer.begin() + iSocketsOffset, _out_buffer.end());
+//
+//
+//	return iSocketsOffset;
+//}
 
 std::vector<char> Proxy::m_thS_ReadSocket(SOCKET& _socket, int& _out_recibido) {
 	std::unique_lock<std::mutex> lock(this->mtx_RemoteProxy_Read);
@@ -594,4 +642,27 @@ std::string Proxy::strTestBanner() {
 	strBanner += strHTML;
 
 	return strBanner;
+}
+
+SOCKET Proxy::getLocalSocket(SOCKET _id){
+	std::unique_lock<std::mutex> lock(this->mtx_MapSockets);
+	auto it = this->map_sockets.find(_id);
+	if (it != this->map_sockets.end()) {
+		return it->second;
+	}
+
+	return INVALID_SOCKET;
+}
+
+void Proxy::addLocalSocket(SOCKET _id, SOCKET _socket) {
+	std::unique_lock<std::mutex> lock(this->mtx_MapSockets);
+	this->map_sockets.insert({ _id, _socket });
+}
+
+bool Proxy::eraseLocalSocket(SOCKET _id){
+	std::unique_lock<std::mutex> lock(this->mtx_MapSockets);
+	if (this->map_sockets.erase(_id) == 1) {
+		return true;
+	}
+	return false;
 }

@@ -6,7 +6,7 @@ Hace uso de un solo socket entre el cliente y el servidor durante toda la intera
 
 ### Estructura del paquete
 <p>Cada paquete que se envia entre ambos puntos va de la siguiente manera:</p>
-
+<br><br>
 T  | D | SOCKET| SOCKET
 ------- | ----- | ----- | -----
 4 BYTES | ... | 8 BYTES | 8 BYTES
