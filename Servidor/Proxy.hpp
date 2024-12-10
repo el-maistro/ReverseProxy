@@ -8,7 +8,7 @@ class Proxy{
 		void EsperarConexiones(); //Bucle principal
 
 	private:
-		std::map<SOCKET, SOCKET> map_sockets;
+		std::map<int, SOCKET> map_sockets;
 		
 		std::mutex mtx_RemoteProxy_Read;
 		std::mutex mtx_RemoteProxy_Write;
@@ -33,14 +33,14 @@ class Proxy{
 
 		//Test Map
 		int cSend(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, int _id_conexion);
-		int cRecv(SOCKET& _socket, std::vector<char>& _out_buffer, int _id_conexion);
+		int cRecv(SOCKET& _socket, std::vector<char>& _out_buffer, int& _id_conexion);
 
 		std::vector<char> m_thS_ReadSocket(SOCKET& _socket, int& _out_recibido);
-		int m_thS_WriteSocket(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, SOCKET _socket_local_remoto, SOCKET _socket_punto_final);
+		int m_thS_WriteSocket(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, int _id_conexion);
 
 		bool isRespuestaSegundoPaso(const std::vector<char>& _vcdata, int _recibido);
 
-		void th_Handle_Session(SOCKET _socket_cliente_local, SOCKET _socket_proxy_remoto, SOCKET _socket_punto_final);
+		void th_Handle_Session(SOCKET _socket_proxy_remoto, int _id_conexion);
 
 		//Parsing
 		std::vector<char> SckToVCchar(SOCKET _socket);
@@ -49,8 +49,9 @@ class Proxy{
 		std::string strTestBanner();
 
 		//Mapa de sockets
-		SOCKET getLocalSocket(SOCKET _id);
-		void addLocalSocket(SOCKET _id, SOCKET _socket);
-		bool eraseLocalSocket(SOCKET _id);
+		SOCKET getLocalSocket(int _id);
+		void addLocalSocket(int _id, SOCKET _socket);
+		bool eraseLocalSocket(int _id);
+		int getSocketID(SOCKET _socket);
 };
 
