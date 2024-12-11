@@ -152,7 +152,7 @@ void Proxy::EsperarConexiones() {
 				int iRecibido = this->cRecv(temp_socket, vcData, iConexionID);
 
 				SOCKET socket_local_remoto = this->getLocalSocket(iConexionID);
-				
+				DEBUG_MSG(iRecibido);
 				if (iRecibido > 0) {
 					//Crear thread con puerto local y remoto
 					// remover socket local del FD en este thread
@@ -162,14 +162,15 @@ void Proxy::EsperarConexiones() {
 							if (FD_ISSET(socket_local_remoto, &fdMaster)) {
 								FD_CLR(socket_local_remoto, &fdMaster);
 							}
-							std::thread th = std::thread(&Proxy::th_Handle_Session, this, socket_local_remoto, sckTemp_Proxy_Remota);
+							std::thread th = std::thread(&Proxy::th_Handle_Session, this, sckTemp_Proxy_Remota, iConexionID);
 							th.detach();
-							//DEBUG_MSG("[!] Conexion con punto final completa");
-						}else {
-							if (this->sendAllLocal(socket_local_remoto, vcData.data(), iRecibido) == SOCKET_ERROR) {
-								DEBUG_ERR("[X][0] Error enviado respuesta de proxy remota a cliente local");
-							}
+							DEBUG_MSG("[!] Conexion con punto final completa");
 						}
+
+						if (this->sendAllLocal(socket_local_remoto, vcData.data(), iRecibido) == SOCKET_ERROR) {
+							DEBUG_ERR("[X][0] Error enviado respuesta de proxy remota a cliente local");
+						}
+						
 					} else {
 						DEBUG_MSG("[X] No se pudo encontrar un socket con ID " + std::to_string(iConexionID));
 					}
@@ -277,7 +278,7 @@ std::vector<char> Proxy::readAll(SOCKET& _socket, int& _out_recibido) {
 	_out_recibido = SOCKET_ERROR;
 	std::vector<char> vcOut;
 	int iTotalRecibido = 0;
-	int iRetrys = 5;
+	int iRetrys = 10;
 	int iRecibido = 0;
 
 	//Leer un entero para determinar el tam del paquete;
@@ -295,10 +296,13 @@ std::vector<char> Proxy::readAll(SOCKET& _socket, int& _out_recibido) {
 				}else if (iRecibido == SOCKET_ERROR) {
 					int error_wsa = WSAGetLastError();
 					if (error_wsa == WSAEWOULDBLOCK) {
-						if (iRetrys-- > 5) {
+						if (iRetrys-- > 0) {
 							DEBUG_MSG("[!] Intento lectura...");
+							std::this_thread::sleep_for(std::chrono::milliseconds(100));
 							continue;
 						}
+					}else {
+						DEBUG_ERR("[!] Error recibiendo los datos");
 					}
 					break;
 				}
@@ -321,7 +325,7 @@ std::vector<char> Proxy::readAllLocal(SOCKET& _socket, int& _out_recibido) {
 	std::vector<char> vcOut;
 	int iChunk         = 1024;
 	int iTotalRecibido = 0;
-	int iRetrys        = 5;
+	int iRetrys        = 10;
 	int iRecibido      = 0;
 	while (1) {
 		char cTempBuffer[1024];
@@ -332,12 +336,14 @@ std::vector<char> Proxy::readAllLocal(SOCKET& _socket, int& _out_recibido) {
 		}else if (iRecibido == SOCKET_ERROR) {
 			int error_wsa = WSAGetLastError();
 			if (error_wsa == WSAEWOULDBLOCK) {
-				if (iRetrys-- > 5) {
-					DEBUG_MSG("[!] WSAEWOULDBLOCK Intento lectura...");
+				if (iRetrys-- > 0) {
+					//DEBUG_MSG("[!] WSAEWOULDBLOCK Intento lectura...");
+					std::this_thread::sleep_for(std::chrono::milliseconds(100));
 					continue;
 				}
+			}else {
+				DEBUG_MSG("[!] readAllLocal ERR:" + std::to_string(error_wsa));
 			}
-			DEBUG_MSG("[!] readAllLocal ERR:" + std::to_string(error_wsa));
 			break;
 		}
 
@@ -403,16 +409,16 @@ int Proxy::sendAllLocal(SOCKET& _socket, const char* _cbuffer, int _buff_size, b
 		}else if (iEnviado == SOCKET_ERROR) {
 			int error_code = WSAGetLastError();
 			if (error_code == WSAEWOULDBLOCK) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
 				continue;
-			}
-			else {
+			}else {
 				return SOCKET_ERROR;
 			}
 		}
 
 		iTotalEnviado += iEnviado;
 	}
-
+	DEBUG_MSG("[!] sendAllLocal enviados: " + std::to_string(iTotalEnviado) + " bytes");
 	return iTotalEnviado;
 }
 
@@ -464,7 +470,7 @@ int Proxy::cRecv(SOCKET& _socket, std::vector<char>& _out_buffer, SOCKET& _socke
 }
 
 int Proxy::cSend(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, int _id_conexion) {
-	DEBUG_MSG("ID>>> " + std::to_string(_id_conexion));
+	//DEBUG_MSG("ID>>> " + std::to_string(_id_conexion));
 	size_t nSize = _buff_size + int(sizeof(int));
 	std::vector<char> finalData(nSize);
 
@@ -476,7 +482,6 @@ int Proxy::cSend(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, int _
 }
 
 int Proxy::cRecv(SOCKET& _socket, std::vector<char>& _out_buffer, int& _id_conexion) {
-	DEBUG_MSG("ID<<< " + std::to_string(_id_conexion));
 	int iRecibido = 0;
 	int iMinimo = int(sizeof(int));
 
@@ -491,6 +496,8 @@ int Proxy::cRecv(SOCKET& _socket, std::vector<char>& _out_buffer, int& _id_conex
 	int idOffset = iRecibido - iMinimo;
 
 	memcpy(&_id_conexion, _out_buffer.data() + idOffset, sizeof(int));
+
+	//DEBUG_MSG("ID<<< " + std::to_string(_id_conexion));
 
 	_out_buffer.erase(_out_buffer.begin() + idOffset, _out_buffer.end());
 
@@ -551,7 +558,7 @@ void Proxy::th_Handle_Session(SOCKET _socket_proxy_remoto, int _id_conexion) {
 
 	DEBUG_MSG(strPre + " th_Running...");
 	while (isRunning) {
-		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 		fd_set fdMaster_copy = fdClienteMaster;
 		
 		int iNumeroSocket = select(_socket_cliente_local + 1, &fdMaster_copy, nullptr, nullptr, &timeout);

@@ -80,7 +80,7 @@ void ProxyCliente::m_LoopSession() {
 				int iConexionID = 0;
 				
 				int iRecibido = this->cRecv(temp_socket, vcData, iConexionID);
-
+				DEBUG_MSG("[MAIN] GOT " + std::to_string(iRecibido));
 				if (iRecibido > 0) {
 					if (this->isSocksPrimerPaso(vcData, iRecibido)){
 						//DEBUG_MSG("\n\t[!]Primer paso");
@@ -137,7 +137,6 @@ void ProxyCliente::m_LoopSession() {
 							if (this->cSend(temp_socket, vcData.data(), iRecibido, iConexionID) != SOCKET_ERROR) {
 								//Agregar el socket al mapa local
 								this->addLocalSocket(iConexionID, sckPuntoFinal);
-								
 								//Crear thread que leer del punto final
 								std::thread th(&ProxyCliente::th_Handle_Session, this, iConexionID, std::string(cHost.data()));
 								th.detach();
@@ -160,12 +159,10 @@ void ProxyCliente::m_LoopSession() {
 								break;
 							}
 						}
-					} /* else if is HTTP proxy Request*/
-					
-					else {
+					} else {
 						//Datos para enviar al punto final
 						SOCKET socket_punto_final = this->getLocalSocket(iConexionID);
-
+						DEBUG_MSG("[!] Enviando datos a punto final con ID " + std::to_string(iConexionID));
 						if (socket_punto_final != INVALID_SOCKET) {
 							if(this->sendAllLocal(socket_punto_final, vcData.data(), iRecibido) == SOCKET_ERROR) {
 								DEBUG_ERR("[X] Error enviando datos al punto final");
@@ -252,8 +249,9 @@ std::vector<char> ProxyCliente::readAll(SOCKET& _socket, int& _out_recibido) {
 				}else if (iRecibido == SOCKET_ERROR) {
 					int error_wsa = WSAGetLastError();
 					if (error_wsa == WSAEWOULDBLOCK) {
-						if (iRetrys-- > 5) {
+						if (iRetrys-- > 0) {
 							DEBUG_MSG("[!] Intento lectura...");
+							std::this_thread::sleep_for(std::chrono::milliseconds(100));
 							continue;
 						}
 					}
@@ -289,10 +287,13 @@ std::vector<char> ProxyCliente::readAllLocal(SOCKET& _socket, int& _out_recibido
 		else if (iRecibido == SOCKET_ERROR) {
 			int error_wsa = WSAGetLastError();
 			if (error_wsa == WSAEWOULDBLOCK) {
-				if (iRetrys-- > 5) {
+				if (iRetrys-- > 0) {
 					DEBUG_MSG("[!] Intento lectura...");
+					std::this_thread::sleep_for(std::chrono::milliseconds(100));
 					continue;
 				}
+			} else {
+				DEBUG_MSG("[!] readAllLocal ERR:" + std::to_string(error_wsa));
 			}
 			break;
 		}
@@ -412,7 +413,7 @@ int ProxyCliente::cRecv(SOCKET& _socket, std::vector<char>& _out_buffer, SOCKET&
 }
 
 int ProxyCliente::cSend(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, int _id_conexion) {
-	DEBUG_MSG("ID>>> " + std::to_string(_id_conexion));
+	//DEBUG_MSG("ID>>> " + std::to_string(_id_conexion));
 	size_t nSize = _buff_size + int(sizeof(int));
 	std::vector<char> finalData(nSize);
 
@@ -439,7 +440,7 @@ int ProxyCliente::cRecv(SOCKET& _socket, std::vector<char>& _out_buffer, int& _i
 	int idOffset = iRecibido - iMinimo;
 
 	memcpy(&_id_conexion, _out_buffer.data() + idOffset, sizeof(int));
-	DEBUG_MSG("ID<<< " + std::to_string(_id_conexion));
+	//DEBUG_MSG("ID<<< " + std::to_string(_id_conexion));
 
 	_out_buffer.erase(_out_buffer.begin() + idOffset, _out_buffer.end());
 
@@ -450,7 +451,6 @@ int ProxyCliente::m_thS_WriteSocket(SOCKET& _socket, const char* _cbuffer, size_
 	std::unique_lock<std::mutex> lock(this->mtx_WriteSocket);
 	return this->cSend(_socket, _cbuffer, _buff_size, _id_conexion);
 }
-
 
 std::vector<char> ProxyCliente::SckToVCchar(SOCKET _socket) {
 	std::vector<char> vcout(6);
@@ -496,8 +496,8 @@ std::vector<char> ProxyCliente::strParseIP(const uint8_t* addr, uint8_t addr_typ
 }
 
 void ProxyCliente::th_Handle_Session(int _id_conexion, std::string _host) {
-	// this->sckMainsocket = SOCKET servidor 
-	
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
 	SOCKET _socket_punto_final = this->getLocalSocket(_id_conexion);
 	if (_socket_punto_final == INVALID_SOCKET) {
 		DEBUG_MSG("[X] No existe un socket asociado con el ID " + std::to_string(_id_conexion));
@@ -512,15 +512,15 @@ void ProxyCliente::th_Handle_Session(int _id_conexion, std::string _host) {
 	FD_ZERO(&fdMaster);
 	FD_SET(_socket_punto_final, &fdMaster);
 
-	DEBUG_MSG("[!] INIT: " + _host);
+	DEBUG_MSG("[!] INIT: " + _host + " ID: " + std::to_string(_id_conexion));
 
 	bool isRunning = true;
 
 	while (isRunning) {
-		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		fd_set fdMaster_Copy = fdMaster;
 
 		int iNumeroSockets = select(_socket_punto_final + 1, &fdMaster_Copy, nullptr, nullptr, &timeout);
+		DEBUG_MSG("[th] SOCKETS: " + std::to_string(iNumeroSockets));
 		for (int index = 0; index < iNumeroSockets; index++) {
 			SOCKET temp_socket = fdMaster_Copy.fd_array[index];
 
@@ -547,6 +547,8 @@ void ProxyCliente::th_Handle_Session(int _id_conexion, std::string _host) {
 	}
 
 	DEBUG_MSG("[!] END: " + _host);
+
+	this->eraseLocalSocket(_id_conexion);
 
 	return;
 }
