@@ -17,3 +17,4 @@
 
 #define DEBUG_MSG(x) std::cout<<" [DBG] "<<x<<std::endl;
 #define DEBUG_ERR(x) std::cout<<" [DBG] "<<x<<" [ERR]: "<<GetLastError()<<std::endl;
+#define RETRY_COUNT 10

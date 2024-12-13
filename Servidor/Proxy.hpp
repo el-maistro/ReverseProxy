@@ -28,23 +28,17 @@ class Proxy{
 		int sendAll(SOCKET& _socket, const char* _cbuffer, int _buff_size, bool dbg = false);
 		int sendAllLocal(SOCKET& _socket, const char* _cbuffer, int _buff_size, bool dbg = false);
 		
-		int cSend(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, SOCKET _socket_local_remoto, SOCKET _socket_punto_final);
-		int cRecv(SOCKET& _socket, std::vector<char>& _out_buffer, SOCKET& _socket_local_remoto, SOCKET& _socket_punto_final);
-
-		//Test Map
 		int cSend(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, int _id_conexion);
 		int cRecv(SOCKET& _socket, std::vector<char>& _out_buffer, int& _id_conexion);
 
 		std::vector<char> m_thS_ReadSocket(SOCKET& _socket, int& _out_recibido);
 		int m_thS_WriteSocket(SOCKET& _socket, const char* _cbuffer, size_t _buff_size, int _id_conexion);
 
+		bool procRespuestaProxy(int _recibido, const std::vector<char>& _vcdata, SOCKET _proxy_remota, int _id_conexion, FD_SET& _fd);
 		bool isRespuestaSegundoPaso(const std::vector<char>& _vcdata, int _recibido);
-
-		void th_Handle_Session(SOCKET _socket_proxy_remoto, int _id_conexion);
+		void th_Handle_Session(SOCKET _socket_proxy_remoto, int _id_conexion, SOCKET _socket_local);
 
 		//Parsing
-		std::vector<char> SckToVCchar(SOCKET _socket);
-		SOCKET VCcharToSck(const char* _cdata);
 		std::vector<char> strParseIP(const uint8_t* addr, uint8_t addr_type);
 		std::string strTestBanner();
 
