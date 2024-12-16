@@ -6,6 +6,7 @@
 #include<iomanip>
 #include<memory>
 #include<string>
+#include<cstring>
 #include<vector>
 #include<map>
 #include<random>

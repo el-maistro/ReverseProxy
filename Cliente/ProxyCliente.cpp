@@ -1,4 +1,5 @@
 #include "ProxyCliente.hpp"
+#include "../common/misc.hpp"
 
 ProxyCliente::ProxyCliente() {
 	WSACleanup();
@@ -86,7 +87,7 @@ void ProxyCliente::m_LoopSession() {
 						cRespuesta[0] = vcData[0];
 						cRespuesta[1] = 0x00;
 
-						if(this->cSend(temp_socket, cRespuesta, 2, iConexionID) == SOCKET_ERROR) {
+						if(this->m_thS_WriteSocket(temp_socket, cRespuesta, 2, iConexionID) == SOCKET_ERROR) {
 							DEBUG_ERR("[X] No se pudo responder al primer paso");
 						}
 					}else if (this->isSocksSegundoPaso(vcData, iRecibido)){
@@ -132,7 +133,7 @@ void ProxyCliente::m_LoopSession() {
 						if (sckPuntoFinal != INVALID_SOCKET) {
 							vcData[1] = 0x00;
 
-							if (this->cSend(temp_socket, vcData.data(), iRecibido, iConexionID) != SOCKET_ERROR) {
+							if (this->m_thS_WriteSocket(temp_socket, vcData.data(), iRecibido, iConexionID) != SOCKET_ERROR) {
 								//Agregar el socket al mapa local
 								this->addLocalSocket(iConexionID, sckPuntoFinal);
 								//Crear thread que leer del punto final
@@ -149,12 +150,60 @@ void ProxyCliente::m_LoopSession() {
 						}else {
 							vcData[1] = 0x04;
 							DEBUG_ERR("[X] No se pudo conectar al punto final");
-							if (this->cSend(temp_socket, vcData.data(), iRecibido, iConexionID) == SOCKET_ERROR) {
+							if (this->m_thS_WriteSocket(temp_socket, vcData.data(), iRecibido, iConexionID) == SOCKET_ERROR) {
 								DEBUG_ERR("[X] No se pudo enviar respuest al servidor");
 								FD_CLR(temp_socket, &fdMaster_Copy);
 								closesocket(temp_socket);
 								isConnected = false;
 								break;
+							}
+						}
+					}else if (this->isHTTP(vcData, iRecibido)) {
+						//Peticion HTTP proxy
+						HTTPRequest nRequest = this->parseHTTPrequest(vcData);
+
+						if (nRequest.iTipoRequest == TipoRequestHTTP::HTTPS) {
+							// HTTPS
+							SOCKET sckPuntoFinal = this->m_sckConectar(nRequest.strHost.c_str(), nRequest.strPort.c_str());
+							if (sckPuntoFinal != INVALID_SOCKET) {
+								std::string strResponse = "HTTP/1.1 200 Connection Established\r\n\r\n";
+								DEBUG_MSG(strResponse);
+								if(this->m_thS_WriteSocket(temp_socket, strResponse.c_str(), strResponse.size(), iConexionID) != SOCKET_ERROR){
+									this->addLocalSocket(iConexionID, sckPuntoFinal);
+									std::thread th(&ProxyCliente::th_Handle_Session, this, iConexionID, std::string(nRequest.strHost));
+									th.detach();
+								}else {
+									DEBUG_ERR("[X] No se pudo enviar respuesta al servidor");
+								}
+							}else {
+								DEBUG_ERR("[X] No se pudo conectar con el punto final");
+							}
+						}else {
+							// HTTP GET | POST
+							int offset = nRequest.iTipoRequest == TipoRequestHTTP::GET ? 4 : 5;
+							vcData.erase(vcData.begin() + offset, vcData.begin() + offset + 6 + nRequest.strHost.size() + nRequest.strPort.size());
+							
+							size_t nSize = vcData.size() + nRequest.strPath.size();
+
+							vcData.resize(nSize);
+
+							vcData.insert(vcData.begin() + offset, nRequest.strPath.size(), ' ');
+
+							memcpy(vcData.data() + offset, nRequest.strPath.c_str(), nRequest.strPath.size());
+							
+							SOCKET sckPuntoFinal = this->m_sckConectar(nRequest.strHost.c_str(), nRequest.strPort.c_str());
+
+							if (sckPuntoFinal != INVALID_SOCKET) {
+								DEBUG_MSG("[NO-SSL] Request...");
+								if (this->sendAllLocal(sckPuntoFinal, vcData.data(), nSize) != SOCKET_ERROR) {
+									this->addLocalSocket(iConexionID, sckPuntoFinal);
+									std::thread th(&ProxyCliente::th_Handle_Session, this, iConexionID, std::string(nRequest.strHost));
+									th.detach();
+								}else {
+									DEBUG_ERR("[X] Error reenviando peticion a punto final");
+								}
+							}else {
+								DEBUG_ERR("[X] No se pudo conectar con el punto final");
 							}
 						}
 					} else {
@@ -204,7 +253,7 @@ SOCKET ProxyCliente::m_sckConectar(const char* _host, const char* _puerto) {
 
 		if (connect(temp_socket, sP->ai_addr, sP->ai_addrlen) == -1) {
 			//No se pudo conectar
-			DEBUG_ERR("[X] No se pudo conectar");
+			DEBUG_ERR("[X] No se pudo conectar. Host: " + std::string(_host));
 			continue;
 		}
 		break;
@@ -427,6 +476,74 @@ std::vector<char> ProxyCliente::strParseIP(const uint8_t* addr, uint8_t addr_typ
 	return vc_ip;
 }
 
+HTTPRequest ProxyCliente::parseHTTPrequest(const std::vector<char>& _vcdata) {
+	HTTPRequest out_request;
+
+	if (strncmp(_vcdata.data(), "GET", 3) == 0) {
+		out_request.iTipoRequest = TipoRequestHTTP::GET;          //HTTP - GET
+	}else if (strncmp(_vcdata.data(), "POST", 4) == 0) {
+		out_request.iTipoRequest = TipoRequestHTTP::POST;         //HTTP - POST
+	} else if (strncmp(_vcdata.data(), "CONNECT", 7) == 0) {
+		out_request.iTipoRequest = TipoRequestHTTP::HTTPS;        //HTTPS
+	}else {
+		//Default ?
+		out_request.iTipoRequest = TipoRequestHTTP::GET;
+	}
+	
+	std::vector<char> in_data(_vcdata);
+	in_data.push_back('\0');
+
+	std::vector<std::string> vcSplit;
+
+	switch (out_request.iTipoRequest) {
+		case TipoRequestHTTP::GET:
+		case TipoRequestHTTP::POST:
+			vcSplit = strSplit(std::string(in_data.data()), " ", 3);
+			if (vcSplit.size() == 3) {
+				//Parsear URL - PUERTO - HOST
+				std::vector<std::string> urlSplit = strSplit(vcSplit[1], "/", 1000); // suficiente? /path/to/url/super/long :v
+				//  http: / / www.host.com / path ...
+				if (urlSplit.size() >= 3) {
+					
+					//Parsear Host y Puerto
+					size_t it = urlSplit[2].find(':');
+					if (it != std::string::npos) {
+						out_request.strPort = urlSplit[2].substr(it+1, (urlSplit[2].size() - it) - 1);
+						out_request.strHost = urlSplit[2].substr(0, it);
+					}else {
+						out_request.strPort = "80"; //Puerto 80 por defecto
+						out_request.strHost = urlSplit[2];
+					}
+
+					//Parsear Path
+					int offset = urlSplit[0].size() + urlSplit[2].size() + 3;
+					out_request.strPath = "/" + vcSplit[1].substr(offset, vcSplit[1].size() - offset);
+					
+				}
+			}
+			break;
+		case TipoRequestHTTP::HTTPS:
+			vcSplit = strSplit(std::string(in_data.data()), " ", 2);
+			if (vcSplit.size() == 2) {
+				size_t it = vcSplit[1].find(':');
+				if (it != std::string::npos) {
+					out_request.strHost = vcSplit[1].substr(0, it);
+					out_request.strPort = vcSplit[1].substr(it + 1, (vcSplit[1].size() - it) - 1);
+				}else {
+					out_request.strHost = vcSplit[1];
+					out_request.strPort = "443";
+				}
+				out_request.strPath = "";
+			}
+			break;
+		default:
+			//
+			break;
+	}
+
+	return out_request;
+}
+
 void ProxyCliente::th_Handle_Session(int _id_conexion, std::string _host) {
 	std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
@@ -518,6 +635,29 @@ bool ProxyCliente::isSocksSegundoPaso(const std::vector<char>& _vcdata, int _rec
 			return true;
 		}
 	}
+	return false;
+}
+
+bool ProxyCliente::isHTTP(const std::vector<char>& _vcdata, int _recibido) {
+	if (_recibido < 7) {
+		return false;
+	}
+
+	//HTTP - GET
+	if (strncmp(_vcdata.data(), "GET", 3) == 0) {
+		return true;
+	}
+	
+	//HTTP - POST
+	if (strncmp(_vcdata.data(), "POST", 4) == 0) {
+		return true;
+	}
+	
+	//HTTPS
+	if (strncmp(_vcdata.data(), "CONNECT", 7) == 0) {
+		return true;
+	}
+
 	return false;
 }
 
