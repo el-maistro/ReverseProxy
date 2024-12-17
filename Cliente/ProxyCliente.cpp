@@ -92,7 +92,6 @@ void ProxyCliente::m_LoopSession() {
 						}
 					}else if (this->isSocksSegundoPaso(vcData, iRecibido)){
 						//Segundo paquete, informacion de conexion 
-						//DEBUG_MSG("\n\t[!]Segundo paso");
 						char cHostType = vcData[3];
 						std::vector<char> cHost;
 
@@ -181,20 +180,22 @@ void ProxyCliente::m_LoopSession() {
 						}else {
 							// HTTP GET | POST
 							int offset = nRequest.iTipoRequest == TipoRequestHTTP::GET ? 4 : 5;
-							vcData.erase(vcData.begin() + offset, vcData.begin() + offset + 6 + nRequest.strHost.size() + nRequest.strPort.size());
 							
-							size_t nSize = vcData.size() + nRequest.strPath.size();
+							size_t nSize = iRecibido;
+							if (vcData[offset] != '/') {
+								vcData.erase(vcData.begin() + offset, vcData.begin() + offset + 6 + nRequest.strHost.size() + nRequest.strPort.size());
+								nSize = vcData.size() + nRequest.strPath.size();
 
-							vcData.resize(nSize);
+								vcData.resize(nSize);
 
-							vcData.insert(vcData.begin() + offset, nRequest.strPath.size(), ' ');
+								vcData.insert(vcData.begin() + offset, nRequest.strPath.size(), ' ');
 
-							memcpy(vcData.data() + offset, nRequest.strPath.c_str(), nRequest.strPath.size());
+								memcpy(vcData.data() + offset, nRequest.strPath.c_str(), nRequest.strPath.size());
+							}
 							
 							SOCKET sckPuntoFinal = this->m_sckConectar(nRequest.strHost.c_str(), nRequest.strPort.c_str());
 
 							if (sckPuntoFinal != INVALID_SOCKET) {
-								DEBUG_MSG("[NO-SSL] Request...");
 								if (this->sendAllLocal(sckPuntoFinal, vcData.data(), nSize) != SOCKET_ERROR) {
 									this->addLocalSocket(iConexionID, sckPuntoFinal);
 									std::thread th(&ProxyCliente::th_Handle_Session, this, iConexionID, std::string(nRequest.strHost));
@@ -493,12 +494,14 @@ HTTPRequest ProxyCliente::parseHTTPrequest(const std::vector<char>& _vcdata) {
 	std::vector<char> in_data(_vcdata);
 	in_data.push_back('\0');
 
+	std::string strData(in_data.data());
+
 	std::vector<std::string> vcSplit;
 
 	switch (out_request.iTipoRequest) {
 		case TipoRequestHTTP::GET:
 		case TipoRequestHTTP::POST:
-			vcSplit = strSplit(std::string(in_data.data()), " ", 3);
+			vcSplit = strSplit(strData, " ", 3);
 			if (vcSplit.size() == 3) {
 				//Parsear URL - PUERTO - HOST
 				std::vector<std::string> urlSplit = strSplit(vcSplit[1], "/", 1000); // suficiente? /path/to/url/super/long :v
@@ -519,11 +522,32 @@ HTTPRequest ProxyCliente::parseHTTPrequest(const std::vector<char>& _vcdata) {
 					int offset = urlSplit[0].size() + urlSplit[2].size() + 3;
 					out_request.strPath = "/" + vcSplit[1].substr(offset, vcSplit[1].size() - offset);
 					
+				}else {
+					//No es http://somesite.com/path/file
+					size_t host_offset = strData.find("Host: ");
+					if (host_offset != std::string::npos) {
+						size_t host_offset_end = strData.find("\r\n", host_offset);
+						if (host_offset != std::string::npos) {
+							out_request.strHost = strData.substr(host_offset + 6, host_offset_end - host_offset - 6);
+							size_t port_offset = out_request.strHost.find(':');
+							//El puerto es incluido en la cabecera Host
+							if (port_offset != std::string::npos) {
+								out_request.strPort = out_request.strHost.substr(port_offset + 1, out_request.strHost.size() - port_offset - 1);
+							}else {
+								out_request.strPort = "80";
+							}
+						}
+					}else {
+						DEBUG_MSG("[X] No se pudo parsear el host de la peticion");
+						DEBUG_MSG("[DUMP]\n" + strData);
+					}
+
+					out_request.strPath = vcSplit[1];
 				}
 			}
 			break;
 		case TipoRequestHTTP::HTTPS:
-			vcSplit = strSplit(std::string(in_data.data()), " ", 2);
+			vcSplit = strSplit(strData, " ", 2);
 			if (vcSplit.size() == 2) {
 				size_t it = vcSplit[1].find(':');
 				if (it != std::string::npos) {
@@ -644,12 +668,12 @@ bool ProxyCliente::isHTTP(const std::vector<char>& _vcdata, int _recibido) {
 	}
 
 	//HTTP - GET
-	if (strncmp(_vcdata.data(), "GET", 3) == 0) {
+	if (strncmp(_vcdata.data(), "GET http", 8) == 0) {
 		return true;
 	}
 	
 	//HTTP - POST
-	if (strncmp(_vcdata.data(), "POST", 4) == 0) {
+	if (strncmp(_vcdata.data(), "POST http", 9) == 0) {
 		return true;
 	}
 	
