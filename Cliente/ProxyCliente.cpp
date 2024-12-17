@@ -164,9 +164,8 @@ void ProxyCliente::m_LoopSession() {
 						if (nRequest.iTipoRequest == TipoRequestHTTP::HTTPS) {
 							// HTTPS
 							SOCKET sckPuntoFinal = this->m_sckConectar(nRequest.strHost.c_str(), nRequest.strPort.c_str());
+							std::string strResponse = "HTTP/1.1 200 Connection Established\r\n\r\n";
 							if (sckPuntoFinal != INVALID_SOCKET) {
-								std::string strResponse = "HTTP/1.1 200 Connection Established\r\n\r\n";
-								DEBUG_MSG(strResponse);
 								if(this->m_thS_WriteSocket(temp_socket, strResponse.c_str(), strResponse.size(), iConexionID) != SOCKET_ERROR){
 									this->addLocalSocket(iConexionID, sckPuntoFinal);
 									std::thread th(&ProxyCliente::th_Handle_Session, this, iConexionID, std::string(nRequest.strHost));
@@ -176,6 +175,11 @@ void ProxyCliente::m_LoopSession() {
 								}
 							}else {
 								DEBUG_ERR("[X] No se pudo conectar con el punto final");
+
+								strResponse = "HTTP/1.1 500 Destination Not Found\r\n\r\n";
+								if (this->m_thS_WriteSocket(temp_socket, strResponse.c_str(), strResponse.size(), iConexionID) == SOCKET_ERROR) {
+									DEBUG_ERR("[X] No se pudo enviar respuesta de error al servidor");
+								}
 							}
 						}else {
 							// HTTP GET | POST
@@ -313,7 +317,6 @@ std::vector<char> ProxyCliente::readAll(SOCKET& _socket, int& _out_recibido) {
 		}
 	}else {
 		DEBUG_MSG("\n\t[RECV] No se pudo leer el tamanio del buffer");
-		return vcOut;
 	}
 
 	return vcOut;
