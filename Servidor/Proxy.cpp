@@ -9,7 +9,7 @@ Proxy::Proxy(int _puerto)
 		DEBUG_ERR("WSAStartup error");
 		return;
 	}
-	if (this->m_InitSocket(this->sckLocalSocket, 6666) && this->m_InitSocket(this->sckRemoteSocket, 7777)) {
+	if (this->m_InitSocket(this->sckLocalSocket, this->iPuertoEscucha) && this->m_InitSocket(this->sckRemoteSocket, 7777)) {
 		DEBUG_MSG("SOCKETS creados!!!");
 	}else {
 		DEBUG_ERR("[X]Error creando los sockets");
