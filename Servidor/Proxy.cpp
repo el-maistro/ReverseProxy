@@ -161,50 +161,6 @@ void Proxy::EsperarConexiones() {
 
 }
 
-SOCKET Proxy::m_Conectar(const char*& _host, const char*& _puerto) {
-	SOCKET sckReturn = INVALID_SOCKET;
-
-	struct addrinfo sAddress, *sP, *sServer;
-	memset(&sAddress, 0, sizeof(sAddress));
-
-	sAddress.ai_family = AF_UNSPEC;
-	sAddress.ai_socktype = SOCK_STREAM;
-
-	int iRes = getaddrinfo(_host, _puerto, &sAddress, &sServer);
-	if (iRes != 0) {
-		DEBUG_ERR("[X] getaddrinfo error");
-		return false;
-	}
-
-	for (sP = sServer; sP != nullptr; sP = sP->ai_next) {
-		if ((sckReturn = socket(sP->ai_family, sP->ai_socktype, sP->ai_protocol)) == INVALID_SOCKET) {
-			//socket error
-			continue;
-		}
-
-		if (connect(sckReturn, sP->ai_addr, sP->ai_addrlen) == -1) {
-			//No se pudo conectar
-			DEBUG_ERR("[X] No se pudo conectar");
-			continue;
-		}
-		break;
-	}
-
-	if (sP == nullptr || sckReturn == INVALID_SOCKET) {
-		freeaddrinfo(sServer);
-		return INVALID_SOCKET;
-	}
-
-	unsigned long int iBlock = 1;
-	if (ioctlsocket(sckReturn, FIONBIO, &iBlock) != 0) {
-		DEBUG_ERR("[X] No se pudo hacer non_block");
-	}
-
-	freeaddrinfo(sServer);
-
-	return sckReturn;
-}
-
 std::vector<char> Proxy::readAll(SOCKET& _socket, int& _out_recibido) {
 	_out_recibido = SOCKET_ERROR;
 	std::vector<char> vcOut;
@@ -534,35 +490,6 @@ void Proxy::th_Handle_Session(SOCKET _socket_proxy_remoto, int _id_conexion, SOC
 	}
 	this->eraseLocalSocket(_id_conexion);
 	//DEBUG_MSG(strPre + " closing...");
-}
-
-std::vector<char> Proxy::strParseIP(const uint8_t* addr, uint8_t addr_type) {
-	int addr_size = 0;
-	int iFamily = 0;
-	if (addr_type == 0x01) { //IPv4
-		addr_size = INET_ADDRSTRLEN;
-		iFamily = AF_INET;
-	}else if (addr_type == 0x04) { //IPv6
-		addr_size = INET6_ADDRSTRLEN;
-		iFamily = AF_INET6;
-	}
-	std::vector<char> vc_ip(addr_size);
-	inet_ntop(iFamily, addr, vc_ip.data(), addr_size);
-
-	return vc_ip;
-}
-
-std::string Proxy::strTestBanner() {
-	std::string strHTML = "<br><br><center><h1>Error :v</h1></center>";
-	std::string strBanner = "HTTP/1.1 200 OK\r\n"\
-		"Date: Sat, 10 Jan 2011 03:10:00 GMT\r\n"\
-		"Server: Tanuki/1.0\r\n"\
-		"Content-Length:";
-	strBanner += std::to_string(strHTML.size());
-	strBanner += "\r\nContent - type: text / plain\r\n\r\n";
-	strBanner += strHTML;
-
-	return strBanner;
 }
 
 SOCKET Proxy::getLocalSocket(int _id){

@@ -21,7 +21,6 @@ class Proxy{
 		SOCKET sckRemoteSocket = INVALID_SOCKET;
 
 		bool  m_InitSocket(SOCKET& _socket, int _puerto);
-		SOCKET m_Conectar(const char*& _host, const char*& _puerto);
 		SOCKET m_Aceptar(SOCKET& _socket);
 		std::vector<char> readAll(SOCKET& _socket, int& _out_recibido);
 		std::vector<char> readAllLocal(SOCKET& _socket, int& _out_recibido);
@@ -37,10 +36,6 @@ class Proxy{
 		bool procRespuestaProxy(int _recibido, const std::vector<char>& _vcdata, SOCKET _proxy_remota, int _id_conexion, FD_SET& _fd);
 		bool isRespuestaSegundoPaso(const std::vector<char>& _vcdata, int _recibido);
 		void th_Handle_Session(SOCKET _socket_proxy_remoto, int _id_conexion, SOCKET _socket_local);
-
-		//Parsing
-		std::vector<char> strParseIP(const uint8_t* addr, uint8_t addr_type);
-		std::string strTestBanner();
 
 		//Mapa de sockets
 		SOCKET getLocalSocket(int _id);
